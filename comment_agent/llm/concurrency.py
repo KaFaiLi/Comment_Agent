@@ -10,8 +10,11 @@ def run_parallel(items, fn, *, max_workers: int = 4, status_callback=None) -> li
         try:
             return i, fn(item)
         except Exception as exc:
-            if status_callback:
-                status_callback(f"[TASK FAILED] index {i} | {exc}")
+            try:
+                if status_callback:
+                    status_callback(f"[TASK FAILED] index {i} | {exc}")
+            except Exception:
+                pass
             return i, None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
