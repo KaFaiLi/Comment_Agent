@@ -23,3 +23,8 @@ def test_missing_columns_fail_fast(tmp_path):
     pd.DataFrame({"wrong": [1]}).to_csv(bad, index=False)
     with pytest.raises(ValueError):
         AlertProcessor(str(bad), str(bad), str(bad), output_dir=str(tmp_path))
+
+
+def test_wrap_comment_uses_entity_framing():
+    out = AlertProcessor.wrap_comment("Tag", "2024-01-01", "body")
+    assert out == "&lt;Tag on 2024-01-01&gt;\nbody\n&lt;/Tag on 2024-01-01&gt;"

@@ -36,7 +36,7 @@ class AlertProcessor:
     @staticmethod
     def wrap_comment(tag, date, comment):
         """Wraps a comment with tags indicating its source and date."""
-        return f"<{tag} on {date}>\n{comment}\n</{tag} on {date}>"
+        return f"&lt;{tag} on {date}&gt;\n{comment}\n&lt;/{tag} on {date}&gt;"
 
     def _filter_by_desks(self, df, desks, columns_to_search, comment_col=None):
         """
@@ -333,11 +333,11 @@ class AlertProcessor:
             return "\n\n".join(comments) if comments else pd.NA
 
         comment_columns = [
-            "VAR_SVAR Comment for LLM",
-            "Stress Test Comment for LLM",
-            "Income Attribution Alert Comment for LLM",
-            "PnL Comment for LLM",
-            "Risk Metrics Comment for LLM",
+            VAR_SVAR_COL,
+            STRESS_TEST_COL,
+            IA_COL,
+            PNL_COL,
+            RISK_METRICS_COL,
         ]
 
         for col in comment_columns:
@@ -346,11 +346,11 @@ class AlertProcessor:
 
         merged_df["All Comment for LLM"] = merged_df.apply(
             lambda row: build_comment(
-                row.get("VAR_SVAR Comment for LLM"),
-                row.get("Stress Test Comment for LLM"),
-                row.get("Income Attribution Alert Comment for LLM"),
-                row.get("PnL Comment for LLM"),
-                row.get("Risk Metrics Comment for LLM"),
+                row.get(VAR_SVAR_COL),
+                row.get(STRESS_TEST_COL),
+                row.get(IA_COL),
+                row.get(PNL_COL),
+                row.get(RISK_METRICS_COL),
             ),
             axis=1,
         )
