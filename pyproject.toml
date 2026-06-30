@@ -1,0 +1,23 @@
+[project]
+name = "comment-agent"
+version = "0.1.0"
+description = "Trading-desk risk comment review tool"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit",
+    "langchain-openai",
+    "langchain-core",
+    "pydantic>=2",
+    "pandas",
+    "python-docx",
+    "openpyxl",
+    "python-dotenv",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
