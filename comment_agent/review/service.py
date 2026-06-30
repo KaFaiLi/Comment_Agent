@@ -71,9 +71,11 @@ class CommentReviewService:
             "recurrent": format_recurrent_topics(recurrent_result),
         }
 
-    def generate_markdown_content(self, comment_type, reviews) -> str:
+    def generate_markdown_content(self, comment_type, reviews, summary=None) -> str:
+        if summary is None:
+            summary = self.generate_executive_summary(reviews)
         out = f"# Executive Summary for {comment_type}\n\n"
-        out += f"## Executive Summary:\n{self.generate_executive_summary(reviews)}\n\n"
+        out += f"## Executive Summary:\n{summary}\n\n"
         for quarter, review in reviews.items():
             out += f"## Quarter: {quarter}\n"
             out += f"### Key Metrics Variation\n{review['key_variation']}\n"

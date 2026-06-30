@@ -45,8 +45,10 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
 
     markdown_by_type, summary_by_type = {}, {}
     for comment_type, qreviews in reviews.items():
-        markdown_by_type[comment_type] = service.generate_markdown_content(comment_type, qreviews)
-        summary_by_type[comment_type] = service.generate_executive_summary(qreviews)
+        summary = service.generate_executive_summary(qreviews)
+        summary_by_type[comment_type] = summary
+        markdown_by_type[comment_type] = service.generate_markdown_content(
+            comment_type, qreviews, summary=summary)
 
     persistence.save_results(reviews, markdown_by_type, summary_by_type,
                              cfg.output_dir, DocumentExporter())
@@ -63,6 +65,8 @@ def render_results():
         return
     exporter = DocumentExporter()
     selected = st.session_state.selected_types
+    if not selected:
+        return
     tabs = st.tabs(selected)
     for i, comment_type in enumerate(selected):
         with tabs[i]:
