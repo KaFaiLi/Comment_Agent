@@ -10,6 +10,7 @@ recurrentPrompt = ChatPromptTemplate(
         Ensure your response adheres strictly to the structured format outlined above. Your analysis should be concise, comprehensive, and focused on delivering actionable insights.
         Please be aware that the comments is not provided on daily basis, comments is only recorded when there is an alert or required. It is normal.
         In your response, you NEED to put your reference and indicate the days that you found in the comments to support your answer. You are also encouraged to use the content in the comments to support your analysis. For example, including the CCP entity name while you analysing counterparty risk. DO NOT MAKE UP REFERENCE.
+        Each comment is prefixed with a bracketed citation ID such as [C3]. In the Reference field, cite those IDs only — never a raw date, never an ID that is not shown.
         Reponse in confident professional business finance English. Prevent using "For example"/"For instance"/"Such as".
         Be as details as possible. You have infinite token to work with.
 
@@ -45,19 +46,9 @@ recurrentPrompt = ChatPromptTemplate(
         ]
     ],
     "Reference": [
-        [
-            "2024-01-15: System outage during market open",
-            "2024-01-20: Trading system performance degradation",
-            "2024-02-01: Network outage affecting multiple trading platforms"
-        ],
-        [
-            "2024-03-05: API response delays causing data retrieval issues",
-            "2024-03-18: Network outage affecting multiple trading platforms"
-        ],
-        [
-            "2024-03-05: Database connectivity issues affecting order processing",
-            "2024-03-18: Scheduled software update causing system unavailability"
-        ]
+        ["[C1]", "[C2]"],
+        ["[C3]"],
+        ["[C4]", "[C5]"]
     ],
     "TechIssue": [
         "Trading system performance degradation",
@@ -87,6 +78,7 @@ KeyVariationPrompt = ChatPromptTemplate(
         Ensure your response adheres strictly to the structured format outlined above. Your analysis should be concise, comprehensive, and focused on delivering actionable insights.
         Please be aware that the comments is not provided on daily basis, comments is only recorded when there is an alert or required. It is normal.
         In your response, you NEED to put your reference and indicate the days that you found in the comments to support your answer. You are also encouraged to use the content in the comments to support your analysis. For example, including the CCP entity name while you analysing counterparty risk. DO NOT MAKE UP REFERENCE.
+        Each comment is prefixed with a bracketed citation ID such as [C3]. In the Reference field, cite those IDs only — never a raw date, never an ID that is not shown.
         Reponse in confident professional business finance English. Prevent using "For example"/"For instance"/"Such as".
         Be as details as possible. You have infinite token to work with.
 
@@ -115,20 +107,9 @@ KeyVariationPrompt = ChatPromptTemplate(
         ]
     ],
     "Reference": [
-        [
-            "2024-01-15: System outage during market open",
-            "2024-01-20: Trading system performance degradation",
-            "2024-01-25: Extended system maintenance required",
-            "2024-01-30: Unscheduled maintenance leading to system downtime",
-        ],
-        [
-            "2024-03-05: API response delays causing data retrieval issues",
-            "2024-03-18: Network outage affecting multiple trading platforms"
-        ],
-        [
-            "2024-03-05: Database connectivity issues affecting order processing",
-            "2024-03-18: Scheduled software update causing system unavailability"
-        ]
+        ["[C1]", "[C2]"],
+        ["[C3]"],
+        ["[C4]", "[C5]"]
     ],
     "Summary": "Significant variations in key risk metrics including VaR spikes, position limit breaches, and trading volume anomalies indicate elevated risk levels requiring immediate attention."
 }}</example>""",

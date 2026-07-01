@@ -28,9 +28,9 @@ class Recurrent(BaseModel):
     )
     Reference: List[List[str]] = Field(
         description=(
-            """Reference the dates of the comments for each recurrent topic to support your answer. Provide reference for each the recurrent topics you discovered.
-            You should include all the reference you can found. And provide reference for each topic.
-            DO NOT INVENT REFERENCE."""
+            """Cite ONLY by the bracketed citation IDs shown in the comments, for example [C3].
+            Each topic's entry is a list of such IDs. Never write a raw date. Never invent an ID
+            that is not shown in the comments. If no comment supports a topic, return an empty list for it."""
         )
     )
     Tech_issue: List[str] = Field(
@@ -65,9 +65,9 @@ class KeyVariation(BaseModel):
     )
     Reference: List[List[str]] = Field(
         description=(
-            """Reference the dates of the comments for each key metrics variation topic to support your answer. Provide reference for each key variation topics you discovered.
-            You should include all the reference you can found. And provide reference for each topic.
-            DO NOT INVENT REFERENCE."""
+            """Cite ONLY by the bracketed citation IDs shown in the comments, for example [C3].
+            Each topic's entry is a list of such IDs. Never write a raw date. Never invent an ID
+            that is not shown in the comments. If no comment supports a topic, return an empty list for it."""
         )
     )
     Summary: str = Field(
