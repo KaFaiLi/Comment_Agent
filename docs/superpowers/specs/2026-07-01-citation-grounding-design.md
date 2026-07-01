@@ -67,10 +67,9 @@ def resolve_references(ref_lists: list[list[str]], index: dict) -> tuple[list[li
     A reference string with no valid ID collapses to empty and is omitted."""
 ```
 
-Block splitting: regex on the opening tag `<([^>]+) on (\d{4}-\d{2}-\d{2})>` and its
-matching close. The wrapped format is produced by `AlertProcessor.wrap_comment`
-(note it currently HTML-escapes as `&lt;…&gt;` — the splitter must match the actual
-on-the-wire form; verify against a real combined string in a test).
+Block splitting: regex on the opening tag `<([^>]+?) on (\d{4}-\d{2}-\d{2})>` and its
+matching close via backreference. `AlertProcessor.wrap_comment` now emits real angle
+brackets (`<Tag on DATE>…</Tag on DATE>`), so the splitter matches literal `<`/`>`.
 
 ### Changed: `comment_agent/review/service.py` `_review_one`
 
@@ -135,7 +134,7 @@ Mirror the existing `tests/` layout (`assert`-based, no new frameworks).
 - `resolve_references` keeps valid IDs, renders `[Cn] (DATE)`.
 - invented `[C99]` dropped; dropped_count == 1.
 - a raw-date reference string (no `[Cn]`) collapses to empty, counted as dropped.
-- splitter matches the real `wrap_comment` output form (guards the `&lt;` escaping).
+- splitter matches the real `wrap_comment` output form (`<Tag on DATE>`).
 
 Extend `tests/test_formatters.py`:
 - `## Sources` appendix lists only cited IDs, with full original text.

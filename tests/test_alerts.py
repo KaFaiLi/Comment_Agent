@@ -27,4 +27,4 @@ def test_missing_columns_fail_fast(tmp_path):
 
 def test_wrap_comment_uses_entity_framing():
     out = AlertProcessor.wrap_comment("Tag", "2024-01-01", "body")
-    assert out == "&lt;Tag on 2024-01-01&gt;\nbody\n&lt;/Tag on 2024-01-01&gt;"
+    assert out == "<Tag on 2024-01-01>\nbody\n</Tag on 2024-01-01>"

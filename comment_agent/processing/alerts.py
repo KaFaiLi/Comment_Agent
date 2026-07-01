@@ -36,7 +36,7 @@ class AlertProcessor:
     @staticmethod
     def wrap_comment(tag, date, comment):
         """Wraps a comment with tags indicating its source and date."""
-        return f"&lt;{tag} on {date}&gt;\n{comment}\n&lt;/{tag} on {date}&gt;"
+        return f"<{tag} on {date}>\n{comment}\n</{tag} on {date}>"
 
     def _filter_by_desks(self, df, desks, columns_to_search, comment_col=None):
         """
