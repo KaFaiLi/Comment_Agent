@@ -1,6 +1,18 @@
+import warnings
+
 from langchain_openai import AzureChatOpenAI
 
 from comment_agent.config import AppConfig
+
+# langchain-openai's json_schema structured output returns a response whose
+# `parsed` field is declared Optional but is populated with the bound schema,
+# so pydantic emits a benign "serialized value may not be as expected" warning
+# on every structured call. Parsing succeeds; suppress the upstream noise.
+warnings.filterwarnings(
+    "ignore",
+    message="Pydantic serializer warnings",
+    category=UserWarning,
+)
 
 
 def build_chat_model(cfg: AppConfig) -> AzureChatOpenAI:
