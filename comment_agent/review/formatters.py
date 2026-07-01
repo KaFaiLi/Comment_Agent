@@ -17,7 +17,8 @@ def _sources_appendix(reference_lists, index):
     lines = ["", "## Sources"]
     for cid in cited:
         e = index[cid]
-        lines.append(f'- [{cid}] — {e["tag"]} on {e["date"]}: "{e["text"]}"')
+        text = " ".join(e["text"].split())
+        lines.append(f'- [{cid}] — {e["tag"]} on {e["date"]}: "{text}"')
     return "\n".join(lines)
 
 

@@ -54,3 +54,28 @@ def test_format_key_metrics_no_sources_without_index():
         Reference=[["[C1] (2024-01-15)"]], Summary="s",
     )
     assert "## Sources" not in format_key_metrics(data)
+
+
+def test_sources_appendix_flattens_multiline_text():
+    """Verify multi-line comment text is collapsed to single line in bullet."""
+    multiline_text = "Indicator Type: VAR\nError Message: none\nComment: spike"
+    idx = {
+        "C1": {
+            "id": "C1",
+            "tag": "Risk Metrics Alert Comment",
+            "date": "2024-01-15",
+            "text": multiline_text,
+        },
+    }
+    out = _sources_appendix([["[C1] (2024-01-15)"]], idx)
+
+    # The entire bullet should be a single line with text flattened to spaces
+    assert "## Sources" in out
+    expected_bullet = '- [C1] — Risk Metrics Alert Comment on 2024-01-15: "Indicator Type: VAR Error Message: none Comment: spike"'
+    assert expected_bullet in out
+
+    # Extract the bullet line and verify it has no embedded newlines
+    lines = out.split("\n")
+    bullet_lines = [line for line in lines if line.startswith("- [C1]")]
+    assert len(bullet_lines) == 1, "Should have exactly one bullet line"
+    assert bullet_lines[0] == expected_bullet
