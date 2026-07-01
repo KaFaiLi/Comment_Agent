@@ -1,4 +1,27 @@
-def format_key_metrics(data):
+from comment_agent.review.citations import CITATION_RE
+
+
+def _sources_appendix(reference_lists, index):
+    if not index:
+        return ""
+    cited = []
+    seen = set()
+    for refs in (reference_lists or []):
+        for ref in (refs or []):
+            for cid in CITATION_RE.findall(str(ref)):
+                if cid in index and cid not in seen:
+                    seen.add(cid)
+                    cited.append(cid)
+    if not cited:
+        return ""
+    lines = ["", "## Sources"]
+    for cid in cited:
+        e = index[cid]
+        lines.append(f'- [{cid}] — {e["tag"]} on {e["date"]}: "{e["text"]}"')
+    return "\n".join(lines)
+
+
+def format_key_metrics(data, index=None):
     output = ["### Overview", data.Summary, ""]
 
     topics = data.KeyMetricTopic or []
@@ -16,10 +39,13 @@ def format_key_metrics(data):
         output.append(f"**Reference for Topic {i + 1}:** " + ", ".join(reference))
         output.append("")
 
+    appendix = _sources_appendix(getattr(data, "Reference", []) or [], index)
+    if appendix:
+        output.append(appendix)
     return "\n".join(output)
 
 
-def format_recurrent_topics(data):
+def format_recurrent_topics(data, index=None):
     output = ["### Overview", data.Summary, ""]
 
     topics = data.RecurrentTopic or []
@@ -47,4 +73,7 @@ def format_recurrent_topics(data):
         tech_issues[0] if tech_issues else "No specific technical issues reported."
     )
 
+    appendix = _sources_appendix(getattr(data, "Reference", []) or [], index)
+    if appendix:
+        output.append(appendix)
     return "\n".join(output)
