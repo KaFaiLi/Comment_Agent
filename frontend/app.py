@@ -1,5 +1,8 @@
 import os
+import threading
+
 import streamlit as st
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from comment_agent.config import AppConfig
 from comment_agent.processing.alerts import AlertProcessor
@@ -7,6 +10,21 @@ from comment_agent.processing.columns import COMMENT_TYPE_OPTIONS
 from comment_agent.review.service import CommentReviewService
 from comment_agent.export.documents import DocumentExporter
 from comment_agent import persistence
+
+
+def _make_status(placeholder):
+    # Status callbacks fire from ThreadPoolExecutor worker threads, which lack
+    # the Streamlit ScriptRunContext ("missing ScriptRunContext" warning).
+    # Attach the main script's ctx to each worker before touching a widget.
+    # ponytail: single shared placeholder, last-writer-wins — fine for a
+    # progress line; use a queue if per-task progress bars are ever needed.
+    ctx = get_script_run_ctx()
+
+    def status(msg):
+        add_script_run_ctx(threading.current_thread(), ctx)
+        placeholder.info(msg)
+
+    return status
 
 
 def init_session_state():
@@ -107,7 +125,7 @@ def main():
             placeholder = st.empty()
             with st.spinner("Generating review..."):
                 run_generation(cfg, cert, ia, pnl, desks, selected,
-                               status=lambda m: placeholder.info(m))
+                               status=_make_status(placeholder))
 
     # Always render from session_state — survives download-triggered reruns.
     render_results()
