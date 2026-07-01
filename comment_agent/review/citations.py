@@ -19,3 +19,22 @@ def build_citation_index(combined_text):
     if not index:
         return combined_text, index
     return "\n\n".join(annotated_blocks), index
+
+
+def resolve_references(ref_lists, index):
+    cleaned = []
+    dropped = 0
+    for refs in (ref_lists or []):
+        topic_refs = []
+        seen = set()
+        for ref in (refs or []):
+            valid = [cid for cid in CITATION_RE.findall(str(ref)) if cid in index]
+            if not valid:
+                dropped += 1
+                continue
+            for cid in valid:
+                if cid not in seen:
+                    seen.add(cid)
+                    topic_refs.append(f"[{cid}] ({index[cid]['date']})")
+        cleaned.append(topic_refs)
+    return cleaned, dropped

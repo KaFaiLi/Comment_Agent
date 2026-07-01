@@ -1,4 +1,4 @@
-from comment_agent.review.citations import build_citation_index, CITATION_RE
+from comment_agent.review.citations import build_citation_index, CITATION_RE, resolve_references
 
 WRAPPED = (
     "<Risk Metrics Alert Comment on 2024-01-15>\n"
@@ -32,3 +32,33 @@ def test_build_index_no_blocks_returns_input_unchanged():
     annotated, index = build_citation_index("no tags here")
     assert annotated == "no tags here"
     assert index == {}
+
+
+INDEX = {
+    "C1": {"id": "C1", "tag": "Risk Metrics Alert Comment", "date": "2024-01-15", "text": "Indicator Type: VAR"},
+    "C2": {"id": "C2", "tag": "PnL comments", "date": "2024-02-03", "text": "Loss on FX book"},
+}
+
+
+def test_resolve_keeps_valid_and_formats_with_date():
+    cleaned, dropped = resolve_references([["[C1]", "[C2]"]], INDEX)
+    assert cleaned == [["[C1] (2024-01-15)", "[C2] (2024-02-03)"]]
+    assert dropped == 0
+
+
+def test_resolve_drops_invented_ids():
+    cleaned, dropped = resolve_references([["[C1]"], ["[C99]"]], INDEX)
+    assert cleaned == [["[C1] (2024-01-15)"], []]
+    assert dropped == 1
+
+
+def test_resolve_drops_raw_date_reference():
+    cleaned, dropped = resolve_references([["2024-01-15: system outage"]], INDEX)
+    assert cleaned == [[]]
+    assert dropped == 1
+
+
+def test_resolve_dedupes_within_topic():
+    cleaned, dropped = resolve_references([["[C1]", "[C1]"]], INDEX)
+    assert cleaned == [["[C1] (2024-01-15)"]]
+    assert dropped == 0
