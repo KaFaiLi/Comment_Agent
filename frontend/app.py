@@ -46,6 +46,8 @@ def render_sidebar():
         pnl = st.file_uploader("PnL Comment CSV", type="csv", key="pnl_file")
         raw = st.text_input("Desks (comma-separated)", placeholder="EQD, FIC")
         desks = [d.strip() for d in raw.split(",") if d.strip()]
+        if desks:
+            st.caption("Desks to search: " + ", ".join(desks))
         selected = st.multiselect("Comment types", COMMENT_TYPE_OPTIONS,
                                   default=COMMENT_TYPE_OPTIONS)
         generate = st.button("Generate Review")
