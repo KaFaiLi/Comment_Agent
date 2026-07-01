@@ -7,6 +7,7 @@ from comment_agent.llm.concurrency import run_parallel
 from comment_agent.review.schemas import Recurrent, KeyVariation
 from comment_agent.review.prompts import recurrentPrompt, KeyVariationPrompt, xxm_prompt
 from comment_agent.review.formatters import format_key_metrics, format_recurrent_topics
+from comment_agent.review.citations import build_citation_index, resolve_references
 from comment_agent.processing.columns import COMMENT_COLUMNS
 
 
@@ -49,26 +50,36 @@ class CommentReviewService:
     def _review_one(self, task):
         quarter, comment_type, comments = task
         combined = " ".join(str(c) for c in comments)
+        annotated, index = build_citation_index(combined)
 
         key_result = invoke_structured(
             self.key_llm, self.model,
-            KeyVariationPrompt.invoke({"query": combined}), KeyVariation,
+            KeyVariationPrompt.invoke({"query": annotated}), KeyVariation,
             max_retries=self.cfg.max_retries, delay_seconds=2,
             label=f"Key variation {quarter}-{comment_type}",
             status_callback=self.status_callback,
         )
         recurrent_result = invoke_structured(
             self.recurrent_llm, self.model,
-            recurrentPrompt.invoke({"query": combined}), Recurrent,
+            recurrentPrompt.invoke({"query": annotated}), Recurrent,
             max_retries=self.cfg.max_retries, delay_seconds=2,
             label=f"Recurrent {quarter}-{comment_type}",
             status_callback=self.status_callback,
         )
         if key_result is None or recurrent_result is None:
             return None
+
+        key_result.Reference, dropped_k = resolve_references(key_result.Reference, index)
+        recurrent_result.Reference, dropped_r = resolve_references(recurrent_result.Reference, index)
+        if dropped_k or dropped_r:
+            self._emit(
+                f"[WARN] {dropped_k + dropped_r} unsupported reference(s) dropped "
+                f"| {quarter}-{comment_type}"
+            )
+
         return {
-            "key_variation": format_key_metrics(key_result),
-            "recurrent": format_recurrent_topics(recurrent_result),
+            "key_variation": format_key_metrics(key_result, index),
+            "recurrent": format_recurrent_topics(recurrent_result, index),
         }
 
     def generate_markdown_content(self, comment_type, reviews, summary=None) -> str:

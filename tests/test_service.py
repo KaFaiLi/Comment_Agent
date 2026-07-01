@@ -55,3 +55,37 @@ def test_markdown_uses_passed_summary_without_extra_llm_call():
     out = svc.generate_markdown_content("VAR_SVAR Comment", reviews, summary="precomputed")
     assert "precomputed" in out
     assert calls["n"] == 0  # no executive-summary LLM call when summary is passed
+
+
+from comment_agent.review.service import CommentReviewService as _CRS
+
+
+def _patch_with_refs(svc, key_refs, rec_refs):
+    svc.key_llm = type("K", (), {"invoke": lambda self, p: KeyVariation(
+        KeyMetricTopic=["t"], KeyMetricVariation=[["v"]], Reference=key_refs, Summary="s")})()
+    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p: Recurrent(
+        RecurrentTopic=["t"], RecurrentTopicExplain=[["e"]], pattern=[["p"]],
+        Reference=rec_refs, Tech_issue=[], Summary="s")})()
+    svc.model = type("M", (), {"invoke": lambda self, p: type("X", (), {"content": "summary"})()})()
+
+
+def test_review_grounds_and_drops_invented_refs():
+    logs = []
+    svc = _CRS.__new__(_CRS)
+    svc.cfg = _cfg()
+    svc.status_callback = logs.append
+    # one topic cites a valid ID, one cites an invented one
+    _patch_with_refs(svc, key_refs=[["[C1]"], ["[C99]"]], rec_refs=[["[C1]"]])
+
+    wrapped = ("<Risk Metrics Alert Comment on 2024-01-15>\n"
+               "Indicator Type: VAR\n"
+               "</Risk Metrics Alert Comment on 2024-01-15>")
+    df = pd.DataFrame({"as_of_date": ["2024-01-15"], VAR_SVAR_COL: [wrapped]})
+
+    result = svc.review(df, ["VAR_SVAR Comment"])
+    review = next(iter(result["VAR_SVAR Comment"].values()))
+
+    assert "## Sources" in review["key_variation"]
+    assert "Indicator Type: VAR" in review["key_variation"]   # original text traced back
+    assert "C99" not in review["key_variation"]               # invented ref dropped
+    assert any("unsupported reference" in m for m in logs)     # drop was reported
