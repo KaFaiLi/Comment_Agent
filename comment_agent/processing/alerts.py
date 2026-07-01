@@ -52,7 +52,7 @@ class AlertProcessor:
             mask |= df[col].isin(desks)
         if comment_col:
             # Build regex with word boundaries to avoid partial matches when possible
-            pattern = r"(" + "|".join(map(re.escape, desks)) + r")"
+            pattern = r"(?:" + "|".join(map(re.escape, desks)) + r")"
             mask |= df[comment_col].str.contains(pattern, na=False, regex=True)
         return df[mask]
 
@@ -268,7 +268,7 @@ class AlertProcessor:
         # Use filtering with regex for PnL comments
         if isinstance(desks, str):
             desks = [desks]
-        pattern = r"(" + "|".join(map(re.escape, desks)) + r")"
+        pattern = r"(?:" + "|".join(map(re.escape, desks)) + r")"
         filtered = df[
             df["Comments"].str.contains(pattern, na=False)
             | df["Trading Desk"].str.contains(pattern, na=False)
