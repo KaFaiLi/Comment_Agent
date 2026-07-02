@@ -4,10 +4,6 @@ import time
 import typing
 from typing import Optional
 
-from langchain_classic.output_parsers import OutputFixingParser
-from langchain_core.output_parsers import PydanticOutputParser
-
-
 def _emit(status_callback, msg):
     print(msg)
     if status_callback:
@@ -50,15 +46,28 @@ def _is_list_field(annotation) -> bool:
     return typing.get_origin(annotation) is list
 
 
+def _is_nested_list_field(annotation) -> bool:
+    args = typing.get_args(annotation)
+    return (typing.get_origin(annotation) is list
+            and bool(args) and typing.get_origin(args[0]) is list)
+
+
 def _normalize_keys(data: dict, schema) -> dict:
-    """Case-insensitive key match to schema fields; wrap bare str in a list
-    where the field expects a list (common 'list became string' error)."""
+    """Case-insensitive key match to schema fields; coerce common shape errors:
+    bare str where a list is expected, and flat List[str] where List[List[str]]
+    is expected (small models routinely flatten the nesting)."""
     fields = schema.model_fields
     lower_map = {name.lower(): name for name in fields}
     fixed = {lower_map.get(k.lower(), k): v for k, v in data.items()}
     for name, field in fields.items():
-        if name in fixed and _is_list_field(field.annotation) and isinstance(fixed[name], str):
-            fixed[name] = [fixed[name]]
+        if name not in fixed:
+            continue
+        value, annotation = fixed[name], field.annotation
+        if _is_list_field(annotation) and isinstance(value, str):
+            fixed[name] = [value]
+        elif (_is_nested_list_field(annotation) and isinstance(value, list)
+                and value and all(isinstance(v, str) for v in value)):
+            fixed[name] = [[v] for v in value]  # one flat entry per topic
     return fixed
 
 
@@ -80,6 +89,10 @@ def _deterministic_fix(raw_text: str, schema):
 # --- tier 2: LLM repair (langchain OutputFixingParser, same model) ---------
 
 def _llm_fix(base_llm, raw_text, schema, label, status_callback):
+    # deferred import: langchain_classic costs ~0.7s and this error path is rare
+    from langchain_classic.output_parsers import OutputFixingParser
+    from langchain_core.output_parsers import PydanticOutputParser
+
     # max_retries>1: gpt-4.1-nano often flattens List[List[str]] on the first
     # fix attempt; a couple of retries let it land the nested shape.
     parser = OutputFixingParser.from_llm(

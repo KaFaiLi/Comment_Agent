@@ -40,13 +40,13 @@ class Structured:
 
 def _fake_llm(*responses):
     """Real Runnable so OutputFixingParser can build its LCEL fix chain."""
-    return FakeListChatModel(responses=list(responses) or ["{}"])
+    return FakeListChatModel(responses=list(responses))
 
 
 # --- orchestration ---------------------------------------------------------
 
 def test_clean_success():
-    result = invoke_structured(Structured([_ok()]), _fake_llm(), "p", Out, fixup=False)
+    result = invoke_structured(Structured([_ok()]), _fake_llm("unused"), "p", Out, fixup=False)
     assert result.name == "ok"
 
 
@@ -67,7 +67,7 @@ def test_llm_fix_fallback():
 
 def test_returns_none_when_unrecoverable():
     s = Structured([_parse_error("totally broken {")])
-    result = invoke_structured(s, _fake_llm("no", "still no", "nope", "never"), "p", Out,
+    result = invoke_structured(s, _fake_llm("not json"), "p", Out,
                                max_retries=1, fixup=True)
     assert result is None
 
@@ -84,6 +84,14 @@ def test_list_became_string_fences_trailing_comma():
     raw = '```json\n{"KeyMetricTopic": "A", "KeyMetricVariation": [["x"]], "Reference": [["[C1]"]], "Summary": "s",}\n```'
     out = _deterministic_fix(raw, KeyVariation)
     assert out is not None and out.KeyMetricTopic == ["A"]  # bare str wrapped to list
+
+
+def test_flattened_nested_list_rewrapped():
+    # small models flatten List[List[str]] to List[str]; tier 1 re-nests it
+    raw = ('{"KeyMetricTopic": ["A", "B"], "KeyMetricVariation": ["x", "y"],'
+           ' "Reference": [["[C1]"], ["[C2]"]], "Summary": "s"}')
+    out = _deterministic_fix(raw, KeyVariation)
+    assert out is not None and out.KeyMetricVariation == [["x"], ["y"]]
 
 
 def test_raw_text_from_tool_call_args():
