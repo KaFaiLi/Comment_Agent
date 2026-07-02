@@ -27,5 +27,6 @@ def build_chat_model(cfg: AppConfig) -> AzureChatOpenAI:
 
 
 def structured(model, schema):
-    """Bind a Pydantic schema using the modern strict JSON-schema method."""
-    return model.with_structured_output(schema, method="json_schema")
+    """Bind a Pydantic schema using strict JSON-schema. include_raw keeps the
+    raw model output on parse failure so invoke_structured can repair it."""
+    return model.with_structured_output(schema, method="json_schema", include_raw=True)

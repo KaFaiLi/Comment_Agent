@@ -50,13 +50,13 @@ recurrentPrompt = ChatPromptTemplate(
         ["[C3]"],
         ["[C4]", "[C5]"]
     ],
-    "TechIssue": [
+    "Tech_issue": [
         "Trading system performance degradation",
         "Database synchronization failures",
         "Report generation delays"
     ],
-    "Summary": "Recurring issues centered around system performance, trading limit breaches, and data quality problems pose significant operational and regulatory risks.
-    }}</example>"""
+    "Summary": "Recurring issues centered around system performance, trading limit breaches, and data quality problems pose significant operational and regulatory risks."
+}}</example>"""
         ),
         (
             "human",
