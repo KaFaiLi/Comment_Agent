@@ -4,7 +4,7 @@ import time
 import typing
 from typing import Optional
 
-from langchain_core.exceptions import OutputParserException
+from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.output_parsers import PydanticOutputParser
 
 
@@ -77,31 +77,18 @@ def _deterministic_fix(raw_text: str, schema):
         return None
 
 
-# --- tier 2: LLM repair (OutputFixingParser behavior, same model) ----------
-
-_NAIVE_FIX = (
-    "The completion below does not satisfy the required schema.\n\n"
-    "Schema instructions:\n{instructions}\n\n"
-    "Completion:\n{completion}\n\n"
-    "Parse error:\n{error}\n\n"
-    "Return ONLY corrected JSON that satisfies the schema. No prose, no code fences."
-)
-
+# --- tier 2: LLM repair (langchain OutputFixingParser, same model) ---------
 
 def _llm_fix(base_llm, raw_text, schema, label, status_callback):
-    parser = PydanticOutputParser(pydantic_object=schema)
-    try:
-        return parser.parse(raw_text)          # maybe deterministic missed a clean parse
-    except OutputParserException as err:
-        error = str(err)
-    prompt = _NAIVE_FIX.format(
-        instructions=parser.get_format_instructions(),
-        completion=raw_text,
-        error=error,
+    # max_retries>1: gpt-4.1-nano often flattens List[List[str]] on the first
+    # fix attempt; a couple of retries let it land the nested shape.
+    parser = OutputFixingParser.from_llm(
+        parser=PydanticOutputParser(pydantic_object=schema),
+        llm=base_llm,
+        max_retries=3,
     )
     try:
-        resp = base_llm.invoke(prompt)
-        return parser.parse(getattr(resp, "content", str(resp)))
+        return parser.parse(raw_text)
     except Exception as exc:
         _emit(status_callback, f"[FIXUP FAILED] {label} | {exc}")
         return None

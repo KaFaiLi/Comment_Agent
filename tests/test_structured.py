@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from comment_agent.llm.structured import (
     invoke_structured,
     _deterministic_fix,
@@ -37,39 +38,36 @@ class Structured:
         return r
 
 
-class TextModel:
-    def __init__(self, content):
-        self._content = content
-
-    def invoke(self, _prompt):
-        return Msg(self._content)
+def _fake_llm(*responses):
+    """Real Runnable so OutputFixingParser can build its LCEL fix chain."""
+    return FakeListChatModel(responses=list(responses) or ["{}"])
 
 
 # --- orchestration ---------------------------------------------------------
 
 def test_clean_success():
-    result = invoke_structured(Structured([_ok()]), TextModel(""), "p", Out, fixup=False)
+    result = invoke_structured(Structured([_ok()]), _fake_llm(), "p", Out, fixup=False)
     assert result.name == "ok"
 
 
 def test_deterministic_fix_recovers_without_llm():
-    # raw carries valid JSON the strict binding failed to surface
+    # raw carries valid JSON the strict binding failed to surface; LLM never called
     s = Structured([_parse_error('{"name": "recovered"}')])
-    result = invoke_structured(s, TextModel("SHOULD NOT BE CALLED"), "p", Out,
+    result = invoke_structured(s, _fake_llm("SHOULD NOT BE CALLED"), "p", Out,
                                max_retries=1, fixup=True)
     assert result.name == "recovered"
 
 
 def test_llm_fix_fallback():
     s = Structured([_parse_error("totally broken {")])
-    result = invoke_structured(s, TextModel('{"name": "fixed"}'), "p", Out,
+    result = invoke_structured(s, _fake_llm('{"name": "fixed"}'), "p", Out,
                                max_retries=2, fixup=True)
     assert result.name == "fixed"
 
 
 def test_returns_none_when_unrecoverable():
     s = Structured([_parse_error("totally broken {")])
-    result = invoke_structured(s, TextModel("not json"), "p", Out,
+    result = invoke_structured(s, _fake_llm("no", "still no", "nope", "never"), "p", Out,
                                max_retries=1, fixup=True)
     assert result is None
 
