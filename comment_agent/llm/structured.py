@@ -4,6 +4,8 @@ import time
 import typing
 from typing import Optional
 
+from pydantic import BaseModel
+
 def _emit(status_callback, msg):
     print(msg)
     if status_callback:
@@ -52,10 +54,21 @@ def _is_nested_list_field(annotation) -> bool:
             and bool(args) and typing.get_origin(args[0]) is list)
 
 
+def _list_item_model(annotation):
+    """The BaseModel item type of a List[Model] annotation, else None."""
+    args = typing.get_args(annotation)
+    if typing.get_origin(annotation) is list and args:
+        item = args[0]
+        if isinstance(item, type) and issubclass(item, BaseModel):
+            return item
+    return None
+
+
 def _normalize_keys(data: dict, schema) -> dict:
     """Case-insensitive key match to schema fields; coerce common shape errors:
     bare str where a list is expected, and flat List[str] where List[List[str]]
-    is expected (small models routinely flatten the nesting)."""
+    is expected (small models routinely flatten the nesting). Recurses into
+    List[Model] fields so nested topic objects get the same treatment."""
     fields = schema.model_fields
     lower_map = {name.lower(): name for name in fields}
     fixed = {lower_map.get(k.lower(), k): v for k, v in data.items()}
@@ -63,7 +76,13 @@ def _normalize_keys(data: dict, schema) -> dict:
         if name not in fixed:
             continue
         value, annotation = fixed[name], field.annotation
-        if _is_list_field(annotation) and isinstance(value, str):
+        item_model = _list_item_model(annotation)
+        if item_model is not None and isinstance(value, list):
+            fixed[name] = [
+                _normalize_keys(v, item_model) if isinstance(v, dict) else v
+                for v in value
+            ]
+        elif _is_list_field(annotation) and isinstance(value, str):
             fixed[name] = [value]
         elif (_is_nested_list_field(annotation) and isinstance(value, list)
                 and value and all(isinstance(v, str) for v in value)):
@@ -93,8 +112,8 @@ def _llm_fix(base_llm, raw_text, schema, label, status_callback):
     from langchain_classic.output_parsers import OutputFixingParser
     from langchain_core.output_parsers import PydanticOutputParser
 
-    # max_retries>1: gpt-4.1-nano often flattens List[List[str]] on the first
-    # fix attempt; a couple of retries let it land the nested shape.
+    # max_retries>1: small models often miss the nested object shape on the
+    # first fix attempt; a couple of retries let it land.
     parser = OutputFixingParser.from_llm(
         parser=PydanticOutputParser(pydantic_object=schema),
         llm=base_llm,

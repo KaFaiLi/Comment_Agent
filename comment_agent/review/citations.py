@@ -21,6 +21,16 @@ def build_citation_index(combined_text):
     return "\n\n".join(annotated_blocks), index
 
 
+def resolve_topic_references(topics, index):
+    """Ground each topic item's `references` in the citation index in place.
+    Returns the number of unsupported references dropped."""
+    topics = topics or []
+    cleaned, dropped = resolve_references([t.references for t in topics], index)
+    for topic, refs in zip(topics, cleaned):
+        topic.references = refs
+    return dropped
+
+
 def resolve_references(ref_lists, index):
     cleaned = []
     dropped = 0

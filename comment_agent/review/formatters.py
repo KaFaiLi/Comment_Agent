@@ -23,58 +23,49 @@ def _sources_appendix(reference_lists, index):
 
 
 def format_key_metrics(data, index=None):
-    output = ["### Overview", data.Summary, ""]
+    output = ["### Overview", data.summary, ""]
 
-    topics = data.KeyMetricTopic or []
-    variations_list = data.KeyMetricVariation or []
-    references_list = getattr(data, "Reference", []) or []
-
-    for i, topic in enumerate(topics):
-        variations = variations_list[i] if i < len(variations_list) else []
-        reference = references_list[i] if i < len(references_list) else []
-
-        output.append(f"### Key Metric Topic {i + 1}: {topic}")
+    topics = data.topics or []
+    for i, item in enumerate(topics):
+        output.append(f"### Key Metric Topic {i + 1}: {item.topic}")
         output.append("**Variations:**")
-        output.append("\n".join(f"- {v}" for v in variations))
+        output.append("\n".join(f"- {v}" for v in (item.analysis or [])))
         output.append("")
-        output.append(f"**Reference for Topic {i + 1}:** " + ", ".join(reference))
+        output.append(f"**Reference for Topic {i + 1}:** " + ", ".join(item.references or []))
         output.append("")
 
-    appendix = _sources_appendix(getattr(data, "Reference", []) or [], index)
+    appendix = _sources_appendix([t.references or [] for t in topics], index)
     if appendix:
         output.append(appendix)
     return "\n".join(output)
 
 
 def format_recurrent_topics(data, index=None):
-    output = ["### Overview", data.Summary, ""]
+    output = ["### Overview", data.summary, ""]
 
-    topics = data.RecurrentTopic or []
-    explains = data.RecurrentTopicExplain or []
-    references = getattr(data, "Reference", []) or []
-    patterns = getattr(data, "pattern", []) or []
-
-    for i, topic in enumerate(topics):
-        explanation_list = explains[i] if i < len(explains) else []
-        reference_list = references[i] if i < len(references) else []
-        pattern_list = patterns[i] if i < len(patterns) else []
-
-        output.append(f"### Recurrent Topic {i + 1}: {topic}")
+    topics = data.topics or []
+    for i, item in enumerate(topics):
+        explanations = [
+            f"Contextual Explanation: {item.context}",
+            f"Reasons for Recurrence: {item.recurrence_reason}",
+            f"Implications and Significance: {item.implications}",
+        ]
+        output.append(f"### Recurrent Topic {i + 1}: {item.topic}")
         output.append("**Explanations:**")
-        output.append("\n".join(f"- {e}" for e in explanation_list))
+        output.append("\n".join(f"- {e}" for e in explanations))
         output.append("")
-        output.append(f"**Pattern for Topic {i + 1}:** " + ", ".join(pattern_list))
+        output.append(f"**Pattern for Topic {i + 1}:** {item.pattern}")
         output.append("")
-        output.append(f"**Reference for Topic {i + 1}:** " + ", ".join(reference_list))
+        output.append(f"**Reference for Topic {i + 1}:** " + ", ".join(item.references or []))
         output.append("")
 
     output.append("### Technical Issues")
-    tech_issues = getattr(data, "Tech_issue", []) or []
+    tech_issues = data.tech_issues or []
     output.append(
         tech_issues[0] if tech_issues else "No specific technical issues reported."
     )
 
-    appendix = _sources_appendix(getattr(data, "Reference", []) or [], index)
+    appendix = _sources_appendix([t.references or [] for t in topics], index)
     if appendix:
         output.append(appendix)
     return "\n".join(output)

@@ -1,26 +1,44 @@
 from comment_agent.review.formatters import format_key_metrics, format_recurrent_topics, _sources_appendix
-from comment_agent.review.schemas import KeyVariation, Recurrent
+from comment_agent.review.schemas import KeyVariation, KeyMetricItem, Recurrent, RecurrentTopicItem
 
 
-def test_format_key_metrics_handles_ragged():
+def _key_item(topic="A", analysis=("v1",), references=("[C1] (2024-01-15)",)):
+    return KeyMetricItem(topic=topic, analysis=list(analysis), references=list(references))
+
+
+def _recurrent_item(topic="T", references=("r",)):
+    return RecurrentTopicItem(
+        topic=topic, context="c", recurrence_reason="why",
+        implications="impact", pattern="p", references=list(references),
+    )
+
+
+def test_format_key_metrics_renders_each_topic():
     data = KeyVariation(
-        KeyMetricTopic=["A", "B"],
-        KeyMetricVariation=[["v1"]],          # shorter than topics on purpose
-        Reference=[["2024-01-01"]],
-        Summary="s",
+        topics=[_key_item("A"), _key_item("B", analysis=[], references=[])],
+        summary="s",
     )
     out = format_key_metrics(data)
     assert "Key Metric Topic 1: A" in out
-    assert "Key Metric Topic 2: B" in out  # must not crash on missing index
+    assert "Key Metric Topic 2: B" in out  # empty analysis/references must not crash
+    assert "- v1" in out
 
 
 def test_format_recurrent_topics_handles_empty_tech():
-    data = Recurrent(
-        RecurrentTopic=["T"], RecurrentTopicExplain=[["e"]],
-        pattern=[["p"]], Reference=[["r"]], Tech_issue=[], Summary="s",
-    )
+    data = Recurrent(topics=[_recurrent_item()], tech_issues=[], summary="s")
     out = format_recurrent_topics(data)
     assert "No specific technical issues reported." in out
+
+
+def test_format_recurrent_topics_renders_explanation_bullets():
+    data = Recurrent(topics=[_recurrent_item()], tech_issues=["glitch"], summary="s")
+    out = format_recurrent_topics(data)
+    assert "Recurrent Topic 1: T" in out
+    assert "- Contextual Explanation: c" in out
+    assert "- Reasons for Recurrence: why" in out
+    assert "- Implications and Significance: impact" in out
+    assert "**Pattern for Topic 1:** p" in out
+    assert "glitch" in out
 
 
 _IDX = {
@@ -40,20 +58,23 @@ def test_sources_appendix_empty_when_nothing_cited():
 
 
 def test_format_key_metrics_appends_sources_when_index_given():
-    data = KeyVariation(
-        KeyMetricTopic=["A"], KeyMetricVariation=[["v1"]],
-        Reference=[["[C1] (2024-01-15)"]], Summary="s",
-    )
+    data = KeyVariation(topics=[_key_item()], summary="s")
     out = format_key_metrics(data, _IDX)
     assert "## Sources" in out
 
 
 def test_format_key_metrics_no_sources_without_index():
-    data = KeyVariation(
-        KeyMetricTopic=["A"], KeyMetricVariation=[["v1"]],
-        Reference=[["[C1] (2024-01-15)"]], Summary="s",
-    )
+    data = KeyVariation(topics=[_key_item()], summary="s")
     assert "## Sources" not in format_key_metrics(data)
+
+
+def test_format_recurrent_topics_appends_sources_when_index_given():
+    data = Recurrent(
+        topics=[_recurrent_item(references=["[C1] (2024-01-15)"])],
+        tech_issues=[], summary="s",
+    )
+    out = format_recurrent_topics(data, _IDX)
+    assert "## Sources" in out
 
 
 def test_sources_appendix_flattens_multiline_text():
