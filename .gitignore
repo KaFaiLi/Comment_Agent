@@ -12,3 +12,7 @@ wheels/
 # Output files
 *Outputs/
 *sample_data/
+
+# Logs
+logs/
+*.log

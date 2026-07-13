@@ -5,11 +5,18 @@ import streamlit as st
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from comment_agent.config import AppConfig
+from comment_agent.logging_config import configure_logging, get_logger
 from comment_agent.processing.alerts import AlertProcessor
 from comment_agent.processing.columns import COMMENT_TYPE_OPTIONS
 from comment_agent.review.service import CommentReviewService
 from comment_agent.export.documents import DocumentExporter
 from comment_agent import persistence
+
+# Configure backend logging once, at import, before any AppConfig is built.
+# from_env() (built later) is validated and may raise; logging must already be
+# live so that failure is captured. Uses env defaults; refreshed per-run below.
+configure_logging()
+logger = get_logger(__name__)
 
 
 def _make_status(placeholder):
@@ -55,6 +62,7 @@ def render_sidebar():
 
 
 def run_generation(cfg, cert, ia, pnl, desks, selected, status):
+    logger.info("Starting review generation | desks=%s | types=%s", desks, selected)
     proc = AlertProcessor(cert, ia, pnl, output_dir=cfg.output_dir)
     merged = proc.merge_comments(desks)
     final_df = AlertProcessor.create_final_comment(merged)
@@ -72,6 +80,8 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
 
     persistence.save_results(reviews, markdown_by_type, summary_by_type,
                              cfg.output_dir, DocumentExporter())
+    logger.info("Review generation complete | comment types produced=%d",
+                len(markdown_by_type))
 
     st.session_state.quarterly_reviews = reviews
     st.session_state.markdown_contents = markdown_by_type
@@ -147,16 +157,23 @@ def main():
 
     if generate:
         if not (cert and ia and pnl):
+            logger.warning("Generation blocked | missing CSV upload(s)")
             st.error("Upload all three CSV files.")
         elif not desks:
+            logger.warning("Generation blocked | no desks entered")
             st.error("Enter at least one desk.")
         else:
             cfg = AppConfig.from_env()
+            cfg.configure_logging(force=True)  # apply config's log settings
             os.makedirs(cfg.output_dir, exist_ok=True)
             placeholder = st.empty()
             with st.spinner("Generating review..."):
-                run_generation(cfg, cert, ia, pnl, desks, selected,
-                               status=_make_status(placeholder))
+                try:
+                    run_generation(cfg, cert, ia, pnl, desks, selected,
+                                   status=_make_status(placeholder))
+                except Exception:
+                    logger.exception("Review generation failed")
+                    st.error("Review generation failed — see logs for details.")
 
     # Always render from session_state — survives download-triggered reruns.
     render_results()
