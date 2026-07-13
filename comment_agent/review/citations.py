@@ -1,5 +1,9 @@
 import re
 
+from comment_agent.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 CITATION_RE = re.compile(r"\[(C\d+)\]")
 
 _BLOCK_RE = re.compile(
@@ -17,7 +21,9 @@ def build_citation_index(combined_text):
         index[cid] = {"id": cid, "tag": tag, "date": date, "text": body}
         annotated_blocks.append(f"[{cid}] {m.group(0)}")
     if not index:
+        logger.debug("No citation blocks found in combined text")
         return combined_text, index
+    logger.debug("Built citation index | %d block(s)", len(index))
     return "\n\n".join(annotated_blocks), index
 
 

@@ -2,6 +2,10 @@ import re
 from io import BytesIO
 from docx import Document
 
+from comment_agent.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class DocumentExporter:
     """
@@ -57,6 +61,7 @@ class DocumentExporter:
     def save_word_doc(doc: Document, file_path: str):
         """Persist a Word document to the specified file path."""
         doc.save(file_path)
+        logger.debug("Saved Word document | %s", file_path)
 
     @staticmethod
     def get_word_download_buffer(doc: Document) -> BytesIO:

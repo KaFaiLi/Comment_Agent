@@ -6,10 +6,13 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from comment_agent.logging_config import get_logger, emit_status
+
+logger = get_logger(__name__)
+
+
 def _emit(status_callback, msg):
-    print(msg)
-    if status_callback:
-        status_callback(msg)
+    emit_status(logger, status_callback, msg)
 
 
 # --- raw output extraction -------------------------------------------------

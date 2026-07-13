@@ -2,9 +2,12 @@ import os
 import re
 import pandas as pd
 
+from comment_agent.logging_config import get_logger
 from comment_agent.processing.columns import (
     VAR_SVAR_COL, STRESS_TEST_COL, RISK_METRICS_COL, IA_COL, PNL_COL,
 )
+
+logger = get_logger(__name__)
 
 
 class AlertProcessor:
@@ -16,6 +19,10 @@ class AlertProcessor:
         self.pnl_comment_df = pd.read_csv(pnl_path)
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+        logger.info(
+            "Loaded source CSVs | cert=%d rows | ia=%d rows | pnl=%d rows | output_dir=%s",
+            len(self.cert_df), len(self.ia_alert_df), len(self.pnl_comment_df), output_dir,
+        )
         self._require_columns(self.cert_df, ["perimeter_name", "trading_desk",
             "indicator_name", "comment", "as_of_date"], "certification alert")
         self._require_columns(self.ia_alert_df, ["perimeter_name", "as_of_date"],
@@ -27,10 +34,12 @@ class AlertProcessor:
     def _require_columns(df, cols, name):
         missing = [c for c in cols if c not in df.columns]
         if missing:
+            logger.error("%s CSV missing columns: %s", name, missing)
             raise ValueError(f"{name} CSV missing columns: {missing}")
 
     @staticmethod
     def to_excel(df, path):
+        logger.debug("Writing %d rows to %s", len(df), path)
         df.to_excel(path, index=False)
 
     @staticmethod
@@ -79,6 +88,7 @@ class AlertProcessor:
         return df.groupby(date_col)[comment_field].apply(aggfunc).reset_index()
 
     def process_var_svar(self, desks):
+        logger.debug("Processing VAR/SVAR comments | desks=%s", desks)
         # Filter for desks and the indicators needed
         cert = self._filter_by_desks(
             self.cert_df,
@@ -123,6 +133,7 @@ class AlertProcessor:
         return grouped[["as_of_date", VAR_SVAR_COL]].drop_duplicates()
 
     def process_stress_test(self, desks):
+        logger.debug("Processing Stress Test comments | desks=%s", desks)
         # Filter for stress test indicator
         stress = self._filter_by_desks(
             self.cert_df,
@@ -179,6 +190,7 @@ class AlertProcessor:
         return result
 
     def process_risk_comments(self, desks):
+        logger.debug("Processing Risk Metrics comments | desks=%s", desks)
         # Filter out risk metrics that are not VAR, SVAR, or STRESS TEST
         risk = self._filter_by_desks(
             self.cert_df,
@@ -222,6 +234,7 @@ class AlertProcessor:
         return grouped[["as_of_date", RISK_METRICS_COL]].drop_duplicates()
 
     def process_ia_alerts(self, desks):
+        logger.debug("Processing Income Attribution comments | desks=%s", desks)
         # Filter using only perimeter_name column
         if isinstance(desks, str):
             desks = [desks]
@@ -262,6 +275,7 @@ class AlertProcessor:
         return grouped[["as_of_date", IA_COL]]
 
     def process_pnl_comments(self, desks):
+        logger.debug("Processing PnL comments | desks=%s", desks)
         df = self.pnl_comment_df.dropna(subset=["Comments"])
         df["Comments"] = df["Comments"].astype(str)
         df["Trading Desk"] = df["Trading Desk"].astype(str)
@@ -284,6 +298,7 @@ class AlertProcessor:
         )
 
     def merge_comments(self, desks):
+        logger.info("Merging comments for desks=%s", desks)
         var_svar = self.process_var_svar(desks)
         stress_test = self.process_stress_test(desks)
         risk = self.process_risk_comments(desks)
@@ -295,6 +310,8 @@ class AlertProcessor:
         merged = merged.merge(stress_test, on="as_of_date", how="outer")
         merged = merged.merge(pnl, on="as_of_date", how="outer")
         merged = merged.merge(risk, on="as_of_date", how="outer")
+        logger.info("Merged comments | %d row(s) across %d date(s)",
+                    len(merged), merged["as_of_date"].nunique())
         return merged
 
     @staticmethod

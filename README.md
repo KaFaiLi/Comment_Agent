@@ -18,3 +18,18 @@ Streamlit tool that turns trading-desk risk-comment CSVs into per-quarter AI rev
 ## Tests
 
     uv run pytest
+
+## Logging
+
+The backend logs through Python's `logging` under the `comment_agent`
+namespace. The Streamlit entry point configures console + rotating-file
+handlers at startup; progress that surfaces in the UI is also written to the
+logs. Control it via `.env`:
+
+    COMMENT_AGENT_LOG_LEVEL=INFO            # DEBUG for verbose per-call tracing
+    COMMENT_AGENT_LOG_DIR=logs
+    COMMENT_AGENT_LOG_FILE=comment_agent.log   # set to "none" to log to console only
+
+Files rotate at 5 MiB (3 backups kept). Embedding the package elsewhere? Call
+`comment_agent.logging_config.configure_logging()` from your entry point;
+until then a `NullHandler` keeps the library quiet.

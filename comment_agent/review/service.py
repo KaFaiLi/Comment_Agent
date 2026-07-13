@@ -1,6 +1,7 @@
 import pandas as pd
 
 from comment_agent.config import AppConfig
+from comment_agent.logging_config import get_logger, emit_status
 from comment_agent.llm import client
 from comment_agent.llm.structured import invoke_structured
 from comment_agent.llm.concurrency import run_parallel
@@ -9,6 +10,8 @@ from comment_agent.review.prompts import recurrentPrompt, KeyVariationPrompt, xx
 from comment_agent.review.formatters import format_key_metrics, format_recurrent_topics
 from comment_agent.review.citations import build_citation_index, resolve_topic_references
 from comment_agent.processing.columns import COMMENT_COLUMNS
+
+logger = get_logger(__name__)
 
 
 class CommentReviewService:
@@ -20,9 +23,7 @@ class CommentReviewService:
         self.recurrent_llm = client.structured(self.model, Recurrent)
 
     def _emit(self, msg):
-        print(msg)
-        if self.status_callback:
-            self.status_callback(msg)
+        emit_status(logger, self.status_callback, msg)
 
     def review(self, df, selected_comment_types) -> dict:
         by_quarter = self._gather_comments_by_type_and_quarter(df)
@@ -42,9 +43,13 @@ class CommentReviewService:
         )
 
         quarterly_reviews = {ct: {} for ct in selected_comment_types}
+        completed = 0
         for (quarter, comment_type, _comments), review in zip(tasks, results):
             if review is not None:
                 quarterly_reviews[comment_type][quarter] = review
+                completed += 1
+        logger.info("Review complete | %d/%d task(s) produced a review",
+                    completed, len(tasks))
         return quarterly_reviews
 
     def _review_one(self, task):
@@ -101,6 +106,7 @@ class CommentReviewService:
             for q, r in reviews.items()
         )
         try:
+            logger.debug("Generating executive summary over %d quarter(s)", len(reviews))
             result = self.model.invoke(f"{xxm_prompt} {complete}")
             return getattr(result, "content", str(result))
         except Exception as exc:
