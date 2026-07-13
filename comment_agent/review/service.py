@@ -7,7 +7,7 @@ from comment_agent.llm.concurrency import run_parallel
 from comment_agent.review.schemas import Recurrent, KeyVariation
 from comment_agent.review.prompts import recurrentPrompt, KeyVariationPrompt, xxm_prompt
 from comment_agent.review.formatters import format_key_metrics, format_recurrent_topics
-from comment_agent.review.citations import build_citation_index, resolve_references
+from comment_agent.review.citations import build_citation_index, resolve_topic_references
 from comment_agent.processing.columns import COMMENT_COLUMNS
 
 
@@ -69,8 +69,8 @@ class CommentReviewService:
         if key_result is None or recurrent_result is None:
             return None
 
-        key_result.Reference, dropped_k = resolve_references(key_result.Reference, index)
-        recurrent_result.Reference, dropped_r = resolve_references(recurrent_result.Reference, index)
+        dropped_k = resolve_topic_references(key_result.topics, index)
+        dropped_r = resolve_topic_references(recurrent_result.topics, index)
         if dropped_k or dropped_r:
             self._emit(
                 f"[WARN] {dropped_k + dropped_r} unsupported reference(s) dropped "

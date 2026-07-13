@@ -1,7 +1,12 @@
 import pandas as pd
 from comment_agent.config import AppConfig
 from comment_agent.review.service import CommentReviewService
-from comment_agent.review.schemas import KeyVariation, Recurrent
+from comment_agent.review.schemas import (
+    KeyVariation,
+    KeyMetricItem,
+    Recurrent,
+    RecurrentTopicItem,
+)
 from comment_agent.processing.columns import VAR_SVAR_COL
 
 
@@ -11,13 +16,26 @@ def _cfg():
                      max_workers=2, max_retries=1)
 
 
-def _patch(svc):
-    svc.key_llm = type("K", (), {"invoke": lambda self, p: KeyVariation(
-        KeyMetricTopic=["t"], KeyMetricVariation=[["v"]], Reference=[["2024-01-01"]],
-        Summary="s")})()
-    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p: Recurrent(
-        RecurrentTopic=["t"], RecurrentTopicExplain=[["e"]], pattern=[["p"]],
-        Reference=[["r"]], Tech_issue=[], Summary="s")})()
+def _key_variation(refs_per_topic):
+    return KeyVariation(
+        topics=[KeyMetricItem(topic="t", analysis=["v"], references=refs)
+                for refs in refs_per_topic],
+        summary="s",
+    )
+
+
+def _recurrent(refs_per_topic):
+    return Recurrent(
+        topics=[RecurrentTopicItem(topic="t", context="c", recurrence_reason="w",
+                                   implications="i", pattern="p", references=refs)
+                for refs in refs_per_topic],
+        tech_issues=[], summary="s",
+    )
+
+
+def _patch(svc, key_refs=(["2024-01-01"],), rec_refs=(["r"],)):
+    svc.key_llm = type("K", (), {"invoke": lambda self, p: _key_variation(key_refs)})()
+    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p: _recurrent(rec_refs)})()
     svc.model = type("M", (), {"invoke": lambda self, p: type("X", (), {"content": "summary"})()})()
 
 
@@ -57,25 +75,13 @@ def test_markdown_uses_passed_summary_without_extra_llm_call():
     assert calls["n"] == 0  # no executive-summary LLM call when summary is passed
 
 
-from comment_agent.review.service import CommentReviewService as _CRS
-
-
-def _patch_with_refs(svc, key_refs, rec_refs):
-    svc.key_llm = type("K", (), {"invoke": lambda self, p: KeyVariation(
-        KeyMetricTopic=["t"], KeyMetricVariation=[["v"]], Reference=key_refs, Summary="s")})()
-    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p: Recurrent(
-        RecurrentTopic=["t"], RecurrentTopicExplain=[["e"]], pattern=[["p"]],
-        Reference=rec_refs, Tech_issue=[], Summary="s")})()
-    svc.model = type("M", (), {"invoke": lambda self, p: type("X", (), {"content": "summary"})()})()
-
-
 def test_review_grounds_and_drops_invented_refs():
     logs = []
-    svc = _CRS.__new__(_CRS)
+    svc = CommentReviewService.__new__(CommentReviewService)
     svc.cfg = _cfg()
     svc.status_callback = logs.append
     # one topic cites a valid ID, one cites an invented one
-    _patch_with_refs(svc, key_refs=[["[C1]"], ["[C99]"]], rec_refs=[["[C1]"]])
+    _patch(svc, key_refs=(["[C1]"], ["[C99]"]), rec_refs=(["[C1]"],))
 
     wrapped = ("<Risk Metrics Alert Comment on 2024-01-15>\n"
                "Indicator Type: VAR\n"

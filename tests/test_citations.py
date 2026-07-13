@@ -1,4 +1,9 @@
-from comment_agent.review.citations import build_citation_index, CITATION_RE, resolve_references
+from comment_agent.review.citations import (
+    build_citation_index,
+    CITATION_RE,
+    resolve_references,
+    resolve_topic_references,
+)
 
 WRAPPED = (
     "<Risk Metrics Alert Comment on 2024-01-15>\n"
@@ -62,3 +67,21 @@ def test_resolve_dedupes_within_topic():
     cleaned, dropped = resolve_references([["[C1]", "[C1]"]], INDEX)
     assert cleaned == [["[C1] (2024-01-15)"]]
     assert dropped == 0
+
+
+def test_resolve_topic_references_grounds_in_place():
+    from comment_agent.review.schemas import KeyMetricItem
+
+    topics = [
+        KeyMetricItem(topic="a", analysis=["x"], references=["[C1]"]),
+        KeyMetricItem(topic="b", analysis=["y"], references=["[C99]"]),
+    ]
+    dropped = resolve_topic_references(topics, INDEX)
+    assert topics[0].references == ["[C1] (2024-01-15)"]
+    assert topics[1].references == []
+    assert dropped == 1
+
+
+def test_resolve_topic_references_handles_empty():
+    assert resolve_topic_references([], INDEX) == 0
+    assert resolve_topic_references(None, INDEX) == 0

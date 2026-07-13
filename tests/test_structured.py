@@ -1,3 +1,5 @@
+from typing import List
+
 from pydantic import BaseModel
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from comment_agent.llm.structured import (
@@ -75,23 +77,32 @@ def test_returns_none_when_unrecoverable():
 # --- tier-1 deterministic repair on the real schema ------------------------
 
 def test_key_case_mismatch():
-    raw = '{"keymetrictopic": ["A"], "keymetricvariation": [["x"]], "reference": [["[C1]"]], "summary": "s"}'
+    raw = ('{"topics": [{"Topic": "A", "Analysis": ["x"], "References": ["[C1]"]}],'
+           ' "SUMMARY": "s"}')
     out = _deterministic_fix(raw, KeyVariation)
-    assert out is not None and out.KeyMetricTopic == ["A"] and out.Summary == "s"
+    assert out is not None and out.topics[0].topic == "A" and out.summary == "s"
 
 
 def test_list_became_string_fences_trailing_comma():
-    raw = '```json\n{"KeyMetricTopic": "A", "KeyMetricVariation": [["x"]], "Reference": [["[C1]"]], "Summary": "s",}\n```'
+    raw = ('```json\n{"topics": [{"topic": "A", "analysis": "x",'
+           ' "references": "[C1]",}], "summary": "s",}\n```')
     out = _deterministic_fix(raw, KeyVariation)
-    assert out is not None and out.KeyMetricTopic == ["A"]  # bare str wrapped to list
+    # bare strings wrapped to lists inside the nested topic object
+    assert out is not None
+    assert out.topics[0].analysis == ["x"]
+    assert out.topics[0].references == ["[C1]"]
+
+
+class NestedLists(BaseModel):
+    topics: List[str]
+    details: List[List[str]]
 
 
 def test_flattened_nested_list_rewrapped():
-    # small models flatten List[List[str]] to List[str]; tier 1 re-nests it
-    raw = ('{"KeyMetricTopic": ["A", "B"], "KeyMetricVariation": ["x", "y"],'
-           ' "Reference": [["[C1]"], ["[C2]"]], "Summary": "s"}')
-    out = _deterministic_fix(raw, KeyVariation)
-    assert out is not None and out.KeyMetricVariation == [["x"], ["y"]]
+    # generic coercion: a flattened List[List[str]] is re-nested one entry per topic
+    raw = '{"topics": ["A", "B"], "details": ["x", "y"]}'
+    out = _deterministic_fix(raw, NestedLists)
+    assert out is not None and out.details == [["x"], ["y"]]
 
 
 def test_raw_text_from_tool_call_args():
