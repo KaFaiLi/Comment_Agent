@@ -38,4 +38,6 @@ def structured(model, schema):
     """Bind a Pydantic schema using strict JSON-schema. include_raw keeps the
     raw model output on parse failure so invoke_structured can repair it."""
     logger.debug("Binding structured output schema | %s", getattr(schema, "__name__", schema))
-    return model.with_structured_output(schema, method="json_schema", include_raw=True)
+    return model.with_structured_output(
+        schema, method="json_schema", strict=True, include_raw=True,
+    )

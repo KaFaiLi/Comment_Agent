@@ -170,8 +170,11 @@ def invoke_structured(structured_llm, base_llm, prompt_value, schema, *,
             _emit(status_callback, f"[FIXED] {label} | deterministic")
             return fixed
 
-        if attempt < max_retries and delay_seconds:
-            time.sleep(delay_seconds)
+        # Parse errors are ~deterministic at low temperature: re-invoking the
+        # identical prompt yields the same bad output. Skip the remaining
+        # invoke retries (they only help transient API errors) and go straight
+        # to tier-2 LLM repair, which feeds the error back so output changes.
+        break
 
     if fixup and raw_text:
         _emit(status_callback, f"[FIXUP] {label} | LLM repair (same model)")
