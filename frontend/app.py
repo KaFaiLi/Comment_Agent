@@ -40,6 +40,7 @@ def init_session_state():
         "markdown_contents": {},
         "executive_summaries": {},
         "selected_types": COMMENT_TYPE_OPTIONS,
+        "token_usage": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -87,6 +88,7 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
     st.session_state.markdown_contents = markdown_by_type
     st.session_state.executive_summaries = summary_by_type
     st.session_state.selected_types = selected
+    st.session_state.token_usage = service.usage
 
 
 def render_results():
@@ -119,6 +121,24 @@ def render_results():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
             st.warning("AI-generated; apply professional judgement.", icon="ℹ️")
+
+
+def render_token_counts():
+    # Appends to the bottom of the sidebar. Called at the end of main() so it
+    # lands under the sidebar widgets rendered earlier in the same script run.
+    usage = st.session_state.token_usage
+    if not usage:
+        return
+    with st.sidebar:
+        st.divider()
+        st.caption("Token usage (last run)")
+        total = usage["input"] + usage["output"]
+        c1, c2 = st.columns(2)
+        c1.metric("Input", f"{usage['input']:,}")
+        c2.metric("Output", f"{usage['output']:,}")
+        c3, c4 = st.columns(2)
+        c3.metric("Cached", f"{usage['cached']:,}")
+        c4.metric("Total", f"{total:,}")
 
 
 def render_intro():
@@ -177,6 +197,7 @@ def main():
 
     # Always render from session_state — survives download-triggered reruns.
     render_results()
+    render_token_counts()
 
 
 if __name__ == "__main__":

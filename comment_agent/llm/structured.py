@@ -134,14 +134,21 @@ def _llm_fix(base_llm, raw_text, schema, label, status_callback):
 def invoke_structured(structured_llm, base_llm, prompt_value, schema, *,
                       max_retries: int = 3, delay_seconds: float = 0.0,
                       label: str = "LLM call", status_callback=None,
-                      fixup: bool = True) -> Optional[object]:
+                      fixup: bool = True, config=None) -> Optional[object]:
     """Primary structured call (bound with include_raw=True). On a parse error:
-    tier 1 deterministic JSON repair, then tier 2 same-model LLM repair."""
+    tier 1 deterministic JSON repair, then tier 2 same-model LLM repair.
+
+    `config` (e.g. {"callbacks": [...]}) is forwarded to the primary invoke so
+    callers can attach a usage-metadata callback. ponytail: the tier-2 LLM
+    repair path is NOT counted (rare); wire config into _llm_fix if it matters.
+    """
     raw_text = None
     for attempt in range(1, max_retries + 1):
         _emit(status_callback, f"[REQUEST] {label} | attempt {attempt}/{max_retries}")
         try:
-            result = structured_llm.invoke(prompt_value)
+            result = (structured_llm.invoke(prompt_value, config=config)
+                      if config is not None
+                      else structured_llm.invoke(prompt_value))
         except Exception as exc:                       # network/API error, not parse
             _emit(status_callback, f"[API ERROR] {label} | attempt {attempt} | {exc}")
             if attempt < max_retries and delay_seconds:

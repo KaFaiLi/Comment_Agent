@@ -34,9 +34,10 @@ def _recurrent(refs_per_topic):
 
 
 def _patch(svc, key_refs=(["2024-01-01"],), rec_refs=(["r"],)):
-    svc.key_llm = type("K", (), {"invoke": lambda self, p: _key_variation(key_refs)})()
-    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p: _recurrent(rec_refs)})()
-    svc.model = type("M", (), {"invoke": lambda self, p: type("X", (), {"content": "summary"})()})()
+    svc.usage = {"input": 0, "cached": 0, "output": 0}
+    svc.key_llm = type("K", (), {"invoke": lambda self, p, config=None: _key_variation(key_refs)})()
+    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p, config=None: _recurrent(rec_refs)})()
+    svc.model = type("M", (), {"invoke": lambda self, p, config=None: type("X", (), {"content": "summary"})()})()
 
 
 def test_review_produces_structure(monkeypatch):
@@ -54,6 +55,20 @@ def test_review_produces_structure(monkeypatch):
     assert len(result["VAR_SVAR Comment"]) >= 1
     review = next(iter(result["VAR_SVAR Comment"].values()))
     assert "key_variation" in review and "recurrent" in review
+
+
+def test_merge_usage_sums_and_tracks_cache():
+    svc = CommentReviewService.__new__(CommentReviewService)
+    svc.usage = {"input": 0, "cached": 0, "output": 0}
+    # UsageMetadataCallbackHandler.usage_metadata shape: {model: {...}}
+    svc._merge_usage({"gpt-4o": {
+        "input_tokens": 100, "output_tokens": 40,
+        "input_token_details": {"cache_read": 30}}})
+    svc._merge_usage({"gpt-4o": {"input_tokens": 10, "output_tokens": 5}})
+    assert svc.usage == {"input": 110, "cached": 30, "output": 45}
+    assert svc.total_tokens == 155  # input + output; cached is a subset of input
+    svc._merge_usage(None)  # missing usage must be a no-op, not a crash
+    assert svc.total_tokens == 155
 
 
 def test_markdown_uses_passed_summary_without_extra_llm_call():

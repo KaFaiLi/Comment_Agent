@@ -1,4 +1,5 @@
 import pandas as pd
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from comment_agent.config import AppConfig
 from comment_agent.logging_config import get_logger, emit_status
@@ -21,9 +22,24 @@ class CommentReviewService:
         self.model = client.build_chat_model(cfg)
         self.key_llm = client.structured(self.model, KeyVariation)
         self.recurrent_llm = client.structured(self.model, Recurrent)
+        # Running token totals across the whole run. `cached` is the Azure
+        # server-side prompt-cache portion of `input` (a subset, not additive).
+        self.usage = {"input": 0, "cached": 0, "output": 0}
 
     def _emit(self, msg):
         emit_status(logger, self.status_callback, msg)
+
+    def _merge_usage(self, usage_by_model: dict):
+        # UsageMetadataCallbackHandler.usage_metadata is {model_name: {...}}.
+        for u in (usage_by_model or {}).values():
+            self.usage["input"] += u.get("input_tokens", 0)
+            self.usage["output"] += u.get("output_tokens", 0)
+            details = u.get("input_token_details") or {}
+            self.usage["cached"] += details.get("cache_read", 0)
+
+    @property
+    def total_tokens(self) -> int:
+        return self.usage["input"] + self.usage["output"]
 
     def review(self, df, selected_comment_types) -> dict:
         by_quarter = self._gather_comments_by_type_and_quarter(df)
@@ -46,6 +62,7 @@ class CommentReviewService:
         completed = 0
         for (quarter, comment_type, _comments), review in zip(tasks, results):
             if review is not None:
+                self._merge_usage(review.pop("usage", None))
                 quarterly_reviews[comment_type][quarter] = review
                 completed += 1
         logger.info("Review complete | %d/%d task(s) produced a review",
@@ -57,19 +74,23 @@ class CommentReviewService:
         combined = " ".join(str(c) for c in comments)
         annotated, index = build_citation_index(combined)
 
+        # One handler per task (own thread); aggregated single-threaded in review().
+        cb = UsageMetadataCallbackHandler()
+        config = {"callbacks": [cb]}
+
         key_result = invoke_structured(
             self.key_llm, self.model,
             KeyVariationPrompt.invoke({"query": annotated}), KeyVariation,
             max_retries=self.cfg.max_retries, delay_seconds=2,
             label=f"Key variation {quarter}-{comment_type}",
-            status_callback=self.status_callback,
+            status_callback=self.status_callback, config=config,
         )
         recurrent_result = invoke_structured(
             self.recurrent_llm, self.model,
             recurrentPrompt.invoke({"query": annotated}), Recurrent,
             max_retries=self.cfg.max_retries, delay_seconds=2,
             label=f"Recurrent {quarter}-{comment_type}",
-            status_callback=self.status_callback,
+            status_callback=self.status_callback, config=config,
         )
         if key_result is None or recurrent_result is None:
             return None
@@ -85,6 +106,7 @@ class CommentReviewService:
         return {
             "key_variation": format_key_metrics(key_result, index),
             "recurrent": format_recurrent_topics(recurrent_result, index),
+            "usage": cb.usage_metadata,
         }
 
     def generate_markdown_content(self, comment_type, reviews, summary=None) -> str:
@@ -107,7 +129,9 @@ class CommentReviewService:
         )
         try:
             logger.debug("Generating executive summary over %d quarter(s)", len(reviews))
-            result = self.model.invoke(f"{xxm_prompt} {complete}")
+            cb = UsageMetadataCallbackHandler()
+            result = self.model.invoke(f"{xxm_prompt} {complete}", config={"callbacks": [cb]})
+            self._merge_usage(cb.usage_metadata)
             return getattr(result, "content", str(result))
         except Exception as exc:
             self._emit(f"[FAILED] executive summary | {exc}")
