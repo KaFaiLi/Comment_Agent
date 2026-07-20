@@ -1,7 +1,9 @@
-from comment_agent.processing.columns import COMMENT_COLUMNS, COMMENT_TYPE_OPTIONS
+from comment_agent.processing.columns import COMMENT_TYPE_OPTIONS, EVIDENCE_COLUMNS, REVIEW_TYPES
 
 
-def test_column_mapping_complete():
-    assert COMMENT_COLUMNS["VAR_SVAR Comment"] == "VAR_SVAR Comment for LLM"
-    assert set(COMMENT_TYPE_OPTIONS) == set(COMMENT_COLUMNS.keys())
-    assert len(COMMENT_COLUMNS) == 5
+def test_review_contract_complete():
+    assert COMMENT_TYPE_OPTIONS == list(REVIEW_TYPES)
+    assert len(REVIEW_TYPES) == 5
+    assert {"source_row_id", "review_type", "metric_name", "evidence_text"}.issubset(
+        EVIDENCE_COLUMNS
+    )

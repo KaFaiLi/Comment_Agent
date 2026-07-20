@@ -10,7 +10,7 @@ from comment_agent.review.schemas import Recurrent, KeyVariation
 from comment_agent.review.prompts import recurrentPrompt, KeyVariationPrompt, xxm_prompt
 from comment_agent.review.formatters import format_key_metrics, format_recurrent_topics
 from comment_agent.review.citations import build_citation_index, resolve_topic_references
-from comment_agent.processing.columns import COMMENT_COLUMNS
+from comment_agent.processing.columns import REVIEW_TYPES, EVIDENCE_COLUMNS
 
 logger = get_logger(__name__)
 
@@ -72,6 +72,10 @@ class CommentReviewService:
     def _review_one(self, task):
         quarter, comment_type, comments = task
         combined = " ".join(str(c) for c in comments)
+        logger.debug(
+            "Review input | %s-%s | %d unique evidence block(s)",
+            quarter, comment_type, len(comments),
+        )
         annotated, index = build_citation_index(combined)
 
         # One handler per task (own thread); aggregated single-threaded in review().
@@ -138,20 +142,37 @@ class CommentReviewService:
             return "Executive summary generation failed."
 
     @staticmethod
-    def _gather_comments_by_type_and_quarter(df) -> dict:
-        df = df.copy()
-        df["as_of_date"] = pd.to_datetime(df["as_of_date"])
-        df["quarter"] = df["as_of_date"].dt.to_period("Q")
+    def _gather_comments_by_type_and_quarter(evidence) -> dict:
+        """Group canonical source evidence without multiplying comment types.
+
+        ``source_row_id`` is the deduplication key rather than the text itself:
+        identical wording on two separate source rows remains valid evidence,
+        while a mistakenly duplicated source row can never be sent twice.
+        """
+        missing = set(EVIDENCE_COLUMNS).difference(evidence.columns)
+        if missing:
+            raise ValueError(f"Review evidence missing columns: {sorted(missing)}")
+
+        evidence = evidence[EVIDENCE_COLUMNS].copy()
+        evidence["as_of_date"] = pd.to_datetime(evidence["as_of_date"])
+        evidence["quarter"] = evidence["as_of_date"].dt.to_period("Q")
 
         by_quarter = {}
-        for quarter in df["quarter"].unique():
-            qdf = df[df["quarter"] == quarter]
+        quarters = sorted(evidence["quarter"].dropna().unique())
+        for quarter in quarters:
+            qdf = evidence[evidence["quarter"] == quarter]
             by_quarter[quarter] = {}
-            for comment_type, column in COMMENT_COLUMNS.items():
-                if column not in qdf.columns:
-                    by_quarter[quarter][comment_type] = []
-                else:
-                    by_quarter[quarter][comment_type] = (
-                        qdf[column].dropna().astype(str).tolist()
+            for comment_type in REVIEW_TYPES:
+                typed = qdf[qdf["review_type"] == comment_type]
+                typed = typed.sort_values(
+                    ["as_of_date", "source", "source_row_id"], kind="stable"
+                )
+                duplicate_count = typed.duplicated(subset=["source_row_id"]).sum()
+                if duplicate_count:
+                    logger.warning(
+                        "Dropped %d duplicate evidence row(s) | %s-%s",
+                        duplicate_count, quarter, comment_type,
                     )
+                typed = typed.drop_duplicates(subset=["source_row_id"], keep="first")
+                by_quarter[quarter][comment_type] = typed["evidence_text"].tolist()
         return by_quarter

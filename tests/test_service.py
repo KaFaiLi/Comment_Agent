@@ -7,13 +7,29 @@ from comment_agent.review.schemas import (
     Recurrent,
     RecurrentTopicItem,
 )
-from comment_agent.processing.columns import VAR_SVAR_COL
+from comment_agent.processing.columns import EVIDENCE_COLUMNS
 
 
 def _cfg():
     return AppConfig(azure_endpoint="https://x.openai.azure.com/",
                      azure_deployment="d", api_key="k", api_version="2024-10-21",
                      max_workers=2, max_retries=1)
+
+
+def _evidence_row(source_row_id, review_type, metric_name, date="2024-01-15"):
+    return {
+        "as_of_date": date,
+        "desk": "EQD",
+        "perimeter_name": "EQD",
+        "source": "certification",
+        "source_row_id": source_row_id,
+        "review_type": review_type,
+        "metric_name": metric_name,
+        "evidence_text": (
+            f"<Evidence on {date}>\nEvidence ID: {source_row_id}\n"
+            f"Metric: {metric_name}\n</Evidence on {date}>"
+        ),
+    }
 
 
 def _key_variation(refs_per_topic):
@@ -46,10 +62,10 @@ def test_review_produces_structure(monkeypatch):
     svc.status_callback = None
     _patch(svc)
 
-    df = pd.DataFrame({
-        "as_of_date": ["2024-01-15", "2024-02-15"],
-        VAR_SVAR_COL: ["comment a", "comment b"],
-    })
+    df = pd.DataFrame([
+        _evidence_row("cert:2", "VAR_SVAR Comment", "VAR"),
+        _evidence_row("cert:3", "VAR_SVAR Comment", "SVAR", date="2024-02-15"),
+    ], columns=EVIDENCE_COLUMNS)
     result = svc.review(df, ["VAR_SVAR Comment"])
     assert "VAR_SVAR Comment" in result
     assert len(result["VAR_SVAR Comment"]) >= 1
@@ -98,10 +114,13 @@ def test_review_grounds_and_drops_invented_refs():
     # one topic cites a valid ID, one cites an invented one
     _patch(svc, key_refs=(["[C1]"], ["[C99]"]), rec_refs=(["[C1]"],))
 
-    wrapped = ("<Risk Metrics Alert Comment on 2024-01-15>\n"
-               "Indicator Type: VAR\n"
-               "</Risk Metrics Alert Comment on 2024-01-15>")
-    df = pd.DataFrame({"as_of_date": ["2024-01-15"], VAR_SVAR_COL: [wrapped]})
+    evidence = _evidence_row("cert:2", "VAR_SVAR Comment", "VAR")
+    evidence["evidence_text"] = (
+        "<Risk Metrics Alert Comment on 2024-01-15>\n"
+        "Indicator Type: VAR\n"
+        "</Risk Metrics Alert Comment on 2024-01-15>"
+    )
+    df = pd.DataFrame([evidence], columns=EVIDENCE_COLUMNS)
 
     result = svc.review(df, ["VAR_SVAR Comment"])
     review = next(iter(result["VAR_SVAR Comment"].values()))
@@ -110,3 +129,30 @@ def test_review_grounds_and_drops_invented_refs():
     assert "Indicator Type: VAR" in review["key_variation"]   # original text traced back
     assert "C99" not in review["key_variation"]               # invented ref dropped
     assert any("unsupported reference" in m for m in logs)     # drop was reported
+
+
+def test_canonical_evidence_groups_var_and_svar_once_without_cross_product():
+    evidence = pd.DataFrame([
+        _evidence_row("cert:2", "VAR_SVAR Comment", "VAR"),
+        _evidence_row("cert:3", "VAR_SVAR Comment", "SVAR"),
+        _evidence_row("cert:2", "VAR_SVAR Comment", "VAR"),  # accidental duplicate source row
+        _evidence_row("cert:4", "Stress Test Comment", "STRESS TEST"),
+        _evidence_row("cert:5", "Stress Test Comment", "STRESS TEST"),
+        _evidence_row("cert:6", "Stress Test Comment", "STRESS TEST"),
+        _evidence_row("ia:2", "IA Comment", "Income Attribution"),
+        _evidence_row("ia:3", "IA Comment", "Income Attribution"),
+        _evidence_row("pnl:2", "PnL Comment", "PnL"),
+        _evidence_row("pnl:3", "PnL Comment", "PnL"),
+    ], columns=EVIDENCE_COLUMNS)
+
+    grouped = CommentReviewService._gather_comments_by_type_and_quarter(evidence)
+    quarter = next(iter(grouped))
+
+    assert len(grouped[quarter]["VAR_SVAR Comment"]) == 2
+    assert len(grouped[quarter]["Stress Test Comment"]) == 3
+    assert len(grouped[quarter]["IA Comment"]) == 2
+    assert len(grouped[quarter]["PnL Comment"]) == 2
+    assert all(
+        text.count("Evidence ID:") == 1
+        for text in grouped[quarter]["VAR_SVAR Comment"]
+    )

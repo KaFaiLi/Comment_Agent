@@ -65,12 +65,11 @@ def render_sidebar():
 def run_generation(cfg, cert, ia, pnl, desks, selected, status):
     logger.info("Starting review generation | desks=%s | types=%s", desks, selected)
     proc = AlertProcessor(cert, ia, pnl, output_dir=cfg.output_dir)
-    merged = proc.merge_comments(desks)
-    final_df = AlertProcessor.create_final_comment(merged)
-    persistence.save_intermediates(final_df, cfg.output_dir)
+    evidence = proc.build_evidence(desks)
+    persistence.save_intermediates(evidence, cfg.output_dir)
 
     service = CommentReviewService(cfg, status_callback=status)
-    reviews = service.review(final_df, selected)
+    reviews = service.review(evidence, selected)
 
     markdown_by_type, summary_by_type = {}, {}
     for comment_type, qreviews in reviews.items():
@@ -182,6 +181,9 @@ def main():
         elif not desks:
             logger.warning("Generation blocked | no desks entered")
             st.error("Enter at least one desk.")
+        elif not selected:
+            logger.warning("Generation blocked | no comment types selected")
+            st.error("Select at least one comment type.")
         else:
             cfg = AppConfig.from_env()
             cfg.configure_logging(force=True)  # apply config's log settings

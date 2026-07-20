@@ -6,6 +6,7 @@ recurrentPrompt = ChatPromptTemplate(
         (
             """Act as a market activities auditor, your task is to analyze the comments provided by the risk department.
         Your analysis should focus on VaR/SVAR/Stress Test/PnL/Risk Metrics observed across the date range provided.
+        When the evidence contains VAR and SVAR or multiple risk metrics, assess them together as one paired risk view while clearly stating whether each finding relates to VAR, SVAR, or both.
         You should prioritize in analysing the impact on PnL, ususal activites and using risk metrics comments to aid your analysis.
         Ensure your response adheres strictly to the structured format outlined above. Your analysis should be concise, comprehensive, and focused on delivering actionable insights.
         Please be aware that the comments is not provided on daily basis, comments is only recorded when there is an alert or required. It is normal.
@@ -67,6 +68,7 @@ KeyVariationPrompt = ChatPromptTemplate(
             "system",
             """Act as a market activities auditor, your task is to analyze the comments provided by the risk department.
         Your analysis should focus on VaR/SVAR/Stress Test/PnL observed across the date range provided.
+        When the evidence contains VAR and SVAR or multiple risk metrics, assess them together as one paired risk view while clearly stating whether each finding relates to VAR, SVAR, or both.
         You should prioritize in analysing the impact on PnL, ususal activites and using risk metrics comments to aid your analysis.
         Ensure your response adheres strictly to the structured format outlined above. Your analysis should be concise, comprehensive, and focused on delivering actionable insights.
         Please be aware that the comments is not provided on daily basis, comments is only recorded when there is an alert or required. It is normal.

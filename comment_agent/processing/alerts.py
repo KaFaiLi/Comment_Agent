@@ -1,17 +1,23 @@
 import os
 import re
+
 import pandas as pd
 
 from comment_agent.logging_config import get_logger
-from comment_agent.processing.columns import (
-    VAR_SVAR_COL, STRESS_TEST_COL, RISK_METRICS_COL, IA_COL, PNL_COL,
-)
+from comment_agent.processing.columns import EVIDENCE_COLUMNS
 
 logger = get_logger(__name__)
 
 
+_CERTIFICATION_REVIEW_TYPES = {
+    "VAR": "VAR_SVAR Comment",
+    "SVAR": "VAR_SVAR Comment",
+    "STRESS TEST": "Stress Test Comment",
+}
+
+
 class AlertProcessor:
-    """Processes various alert and comment data for one or more trading desks."""
+    """Build canonical, source-row-level review evidence for selected desks."""
 
     def __init__(self, cert_path, ia_path, pnl_path, output_dir="Outputs"):
         self.cert_df = pd.read_csv(cert_path)
@@ -19,357 +25,227 @@ class AlertProcessor:
         self.pnl_comment_df = pd.read_csv(pnl_path)
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+
+        self._require_columns(self.cert_df, [
+            "perimeter_name", "trading_desk", "indicator_name", "error_message",
+            "comment", "managerial_validation_comment", "related_scenario", "as_of_date",
+        ], "certification alert")
+        self._require_columns(self.ia_alert_df, [
+            "perimeter_name", "mmg_bl_comment", "mmg_xbc_comment",
+            "managerial_validation_comment", "as_of_date",
+        ], "income attribution alert")
+        self._require_columns(
+            self.pnl_comment_df, ["Trading Desk", "Comments", "Date"], "PnL comment"
+        )
         logger.info(
             "Loaded source CSVs | cert=%d rows | ia=%d rows | pnl=%d rows | output_dir=%s",
             len(self.cert_df), len(self.ia_alert_df), len(self.pnl_comment_df), output_dir,
         )
-        self._require_columns(self.cert_df, ["perimeter_name", "trading_desk",
-            "indicator_name", "comment", "as_of_date"], "certification alert")
-        self._require_columns(self.ia_alert_df, ["perimeter_name", "as_of_date"],
-            "income attribution alert")
-        self._require_columns(self.pnl_comment_df, ["Trading Desk", "Comments", "Date"],
-            "PnL comment")
 
     @staticmethod
-    def _require_columns(df, cols, name):
-        missing = [c for c in cols if c not in df.columns]
+    def _require_columns(df, columns, source_name):
+        missing = [column for column in columns if column not in df.columns]
         if missing:
-            logger.error("%s CSV missing columns: %s", name, missing)
-            raise ValueError(f"{name} CSV missing columns: {missing}")
+            logger.error("%s CSV missing columns: %s", source_name, missing)
+            raise ValueError(f"{source_name} CSV missing columns: {missing}")
+
+    @staticmethod
+    def _normalise_desks(desks) -> list[str]:
+        if isinstance(desks, str):
+            desks = [desks]
+        normalised = [str(desk).strip() for desk in (desks or []) if str(desk).strip()]
+        if not normalised:
+            raise ValueError("At least one desk is required")
+        return normalised
+
+    @staticmethod
+    def _desk_pattern(desks) -> str:
+        return r"(?:" + "|".join(map(re.escape, desks)) + r")"
+
+    @staticmethod
+    def _value_or_default(value, default="No data") -> str:
+        return default if pd.isna(value) or str(value).strip() == "" else str(value)
+
+    @staticmethod
+    def _source_row_id(source: str, index) -> str:
+        """Return a stable, human-readable row ID for an uploaded CSV record."""
+        return f"{source}:{int(index) + 2}"  # CSV header occupies the first line
+
+    @staticmethod
+    def wrap_comment(tag, date, comment):
+        """Wrap one source record in the citation framing consumed by the review stage."""
+        return f"<{tag} on {date}>\n{comment}\n</{tag} on {date}>"
 
     @staticmethod
     def to_excel(df, path):
         logger.debug("Writing %d rows to %s", len(df), path)
         df.to_excel(path, index=False)
 
-    @staticmethod
-    def wrap_comment(tag, date, comment):
-        """Wraps a comment with tags indicating its source and date."""
-        return f"<{tag} on {date}>\n{comment}\n</{tag} on {date}>"
-
-    def _filter_by_desks(self, df, desks, columns_to_search, comment_col=None):
-        """
-        Reusable filter operation:
-         - Converts the input to a list if necessary.
-         - Filters the specified columns for an exact match.
-         - If `comment_col` is provided, applies a regex filter over that column.
-        """
-        if isinstance(desks, str):
-            desks = [desks]
-        mask = pd.Series(False, index=df.index)
-        for col in columns_to_search:
-            mask |= df[col].isin(desks)
-        if comment_col:
-            # Build regex with word boundaries to avoid partial matches when possible
-            pattern = r"(?:" + "|".join(map(re.escape, desks)) + r")"
-            mask |= df[comment_col].str.contains(pattern, na=False, regex=True)
-        return df[mask]
-
-    def _prepare_as_of_date(self, df, date_col="as_of_date"):
-        """Converts the given date column to ISO string representation."""
-        df[date_col] = pd.to_datetime(df[date_col]).dt.date.astype(str)
-        return df
-
-    def _concatenate_fields(self, df, fields, headers, default="No data"):
-        """
-        Concatenates columns from a DataFrame row.
-        `fields` is a list of column names, and `headers` is a list with corresponding header labels.
-        """
-        result = ""
-        for field, header in zip(fields, headers):
-            value = df[field] if pd.notna(df[field]) else default
-            result += f"{header}: {value}\n"
-        return result.strip()
-
-    def _group_comments_by_date(self, df, date_col, comment_field, aggfunc):
-        """
-        Groups comments by a date column using the provided aggregation function.
-        """
-        return df.groupby(date_col)[comment_field].apply(aggfunc).reset_index()
-
-    def process_var_svar(self, desks):
-        logger.debug("Processing VAR/SVAR comments | desks=%s", desks)
-        # Filter for desks and the indicators needed
-        cert = self._filter_by_desks(
-            self.cert_df,
-            desks,
-            ["perimeter_name", "trading_desk"],
-            comment_col="comment",
+    def _filter_certification(self, desks):
+        exact_match = self.cert_df[["perimeter_name", "trading_desk"]].isin(desks).any(axis=1)
+        comment_match = self.cert_df["comment"].astype("string").str.contains(
+            self._desk_pattern(desks), na=False, regex=True,
         )
-        cert = cert[cert["indicator_name"].isin(["VAR", "SVAR"])]
-        self.to_excel(cert, os.path.join(self.output_dir, "Var_SVaR_Comments.xlsx"))
+        return self.cert_df.loc[exact_match | comment_match].copy()
 
-        # Create concatenated comment using the helper for a standardized format
-        cert["Comment_concated"] = cert.apply(
-            lambda row: self._concatenate_fields(
-                row,
-                fields=[
-                    "indicator_name",
-                    "error_message",
-                    "comment",
-                    "managerial_validation_comment",
-                    "related_scenario",
-                ],
-                headers=[
-                    "Indicator Type",
-                    "Error Message",
-                    "Comment",
-                    "Managerial Validation Comment",
-                    "Related Scenario",
-                ],
-            ),
-            axis=1,
-        )
-        cert = self._prepare_as_of_date(cert)
-        grouped = self._group_comments_by_date(
-            cert, "as_of_date", "Comment_concated", lambda x: " ".join(x)
-        )
-        grouped[VAR_SVAR_COL] = grouped.apply(
-            lambda row: self.wrap_comment(
-                "Risk Metrics Alert Comment", row["as_of_date"], row["Comment_concated"]
-            ),
-            axis=1,
-        )
-        return grouped[["as_of_date", VAR_SVAR_COL]].drop_duplicates()
+    def _filter_income_attribution(self, desks):
+        return self.ia_alert_df.loc[
+            self.ia_alert_df["perimeter_name"].isin(desks)
+        ].copy()
 
-    def process_stress_test(self, desks):
-        logger.debug("Processing Stress Test comments | desks=%s", desks)
-        # Filter for stress test indicator
-        stress = self._filter_by_desks(
-            self.cert_df,
-            desks,
-            ["perimeter_name", "trading_desk"],
-            comment_col="comment",
+    def _filter_pnl(self, desks):
+        pnl = self.pnl_comment_df.dropna(subset=["Comments"]).copy()
+        pattern = self._desk_pattern(desks)
+        match = (
+            pnl["Comments"].astype("string").str.contains(pattern, na=False, regex=True)
+            | pnl["Trading Desk"].astype("string").str.contains(pattern, na=False, regex=True)
         )
-        stress = stress[stress["indicator_name"] == "STRESS TEST"]
+        return pnl.loc[match].copy()
+
+    def _write_source_extracts(self, cert, ia, pnl):
+        """Preserve the existing source-extract workbooks outside the LLM pipeline."""
         self.to_excel(
-            stress, os.path.join(self.output_dir, "Stress_Test_Comments.xlsx")
+            cert[cert["indicator_name"].isin(["VAR", "SVAR"])],
+            os.path.join(self.output_dir, "Var_SVaR_Comments.xlsx"),
         )
-
-        stress["Comment_concated"] = stress.apply(
-            lambda row: self._concatenate_fields(
-                row,
-                fields=[
-                    "error_message",
-                    "comment",
-                    "managerial_validation_comment",
-                    "related_scenario",
-                ],
-                headers=[
-                    "Error Message",
-                    "Comment",
-                    "Managerial Validation Comment",
-                    "Related Scenario",
-                ],
-            ),
-            axis=1,
-        )
-        stress = self._prepare_as_of_date(stress)
-        grouped = (
-            stress.groupby(["as_of_date", "indicator_name"])["Comment_concated"]
-            .apply(list)
-            .reset_index()
-        )
-        grouped[STRESS_TEST_COL] = [
-            [
-                self.wrap_comment(
-                    f"{row['indicator_name']} Alert Comment", row["as_of_date"], c
-                )
-                for c in comments
-            ]
-            for comments, (_, row) in zip(
-                grouped["Comment_concated"], grouped.iterrows()
-            )
-        ]
-        # Flatten comments per date
-        result = (
-            grouped.groupby("as_of_date")[STRESS_TEST_COL]
-            .sum()
-            .reset_index()
-        )
-        return result
-
-    def process_risk_comments(self, desks):
-        logger.debug("Processing Risk Metrics comments | desks=%s", desks)
-        # Filter out risk metrics that are not VAR, SVAR, or STRESS TEST
-        risk = self._filter_by_desks(
-            self.cert_df,
-            desks,
-            ["perimeter_name", "trading_desk"],
-            comment_col="comment",
-        )
-        risk = risk[~risk["indicator_name"].isin(["VAR", "SVAR", "STRESS TEST"])]
-        self.to_excel(risk, os.path.join(self.output_dir, "Risk_Metrics_Comment.xlsx"))
-
-        risk["Comment_concated"] = risk.apply(
-            lambda row: self._concatenate_fields(
-                row,
-                fields=[
-                    "indicator_name",
-                    "error_message",
-                    "comment",
-                    "managerial_validation_comment",
-                    "related_scenario",
-                ],
-                headers=[
-                    "Risk Type",
-                    "Error Message",
-                    "Comment",
-                    "Managerial Validation Comment",
-                    "Related Scenario",
-                ],
-            ),
-            axis=1,
-        )
-        risk = self._prepare_as_of_date(risk)
-        grouped = self._group_comments_by_date(
-            risk, "as_of_date", "Comment_concated", lambda x: " ".join(x)
-        )
-        grouped[RISK_METRICS_COL] = grouped.apply(
-            lambda row: self.wrap_comment(
-                "Risk Metrics Alert Comment", row["as_of_date"], row["Comment_concated"]
-            ),
-            axis=1,
-        )
-        return grouped[["as_of_date", RISK_METRICS_COL]].drop_duplicates()
-
-    def process_ia_alerts(self, desks):
-        logger.debug("Processing Income Attribution comments | desks=%s", desks)
-        # Filter using only perimeter_name column
-        if isinstance(desks, str):
-            desks = [desks]
-        ia = self.ia_alert_df[self.ia_alert_df["perimeter_name"].isin(desks)]
         self.to_excel(
-            ia, os.path.join(self.output_dir, "Income_Attribution_Comment.xlsx")
+            cert[cert["indicator_name"] == "STRESS TEST"],
+            os.path.join(self.output_dir, "Stress_Test_Comments.xlsx"),
         )
+        self.to_excel(
+            cert[~cert["indicator_name"].isin(["VAR", "SVAR", "STRESS TEST"])],
+            os.path.join(self.output_dir, "Risk_Metrics_Comment.xlsx"),
+        )
+        self.to_excel(ia, os.path.join(self.output_dir, "Income_Attribution_Comment.xlsx"))
+        self.to_excel(pnl, os.path.join(self.output_dir, "PnL_Comment.xlsx"))
 
-        ia["Comment_concated"] = ia.apply(
-            lambda row: self._concatenate_fields(
-                row,
-                fields=[
-                    "mmg_bl_comment",
-                    "mmg_xbc_comment",
-                    "managerial_validation_comment",
-                ],
-                headers=[
-                    "mmg bl comment",
-                    "mmg xbc comment",
-                    "Managerial Validation Comment",
-                ],
+    def _normalise_source(self, df, *, source, tag, date_column, desk_column,
+                          perimeter_column, review_type, metric_name, detail_fields):
+        """Map one source DataFrame to the shared internal evidence shape."""
+        rows = pd.DataFrame(index=df.index)
+        rows["as_of_date"] = pd.to_datetime(df[date_column]).dt.strftime("%Y-%m-%d")
+        rows["desk"] = df[desk_column].map(
+            lambda value: self._value_or_default(value, default="Unknown")
+        )
+        rows["perimeter_name"] = df[perimeter_column].map(
+            lambda value: self._value_or_default(value, default="Unknown")
+        )
+        rows["source"] = source
+        rows["source_row_id"] = [self._source_row_id(source, index) for index in df.index]
+        rows["review_type"] = review_type
+        rows["metric_name"] = metric_name.map(
+            lambda value: self._value_or_default(value, default="Unknown")
+        )
+        rows["details"] = df.apply(
+            lambda row: "\n".join(
+                f"{label}: {self._value_or_default(row[column])}"
+                for column, label in detail_fields
             ),
             axis=1,
         )
-        ia = self._prepare_as_of_date(ia)
-        grouped = ia.groupby("as_of_date")["Comment_concated"].apply(list).reset_index()
-        grouped[IA_COL] = [
-            [
-                self.wrap_comment(
-                    "Income Attribution Alert Comment", row["as_of_date"], c
-                )
-                for c in comments
+        rows["tag"] = tag
+        return rows
+
+    def _normalise_certification(self, cert):
+        review_type = cert["indicator_name"].map(_CERTIFICATION_REVIEW_TYPES).fillna(
+            "Risk Metrics Comment"
+        )
+        return self._normalise_source(
+            cert,
+            source="certification",
+            tag="Certification Alert Comment",
+            date_column="as_of_date",
+            desk_column="trading_desk",
+            perimeter_column="perimeter_name",
+            review_type=review_type,
+            metric_name=cert["indicator_name"],
+            detail_fields=(
+                ("error_message", "Error Message"),
+                ("comment", "Comment"),
+                ("managerial_validation_comment", "Managerial Validation Comment"),
+                ("related_scenario", "Related Scenario"),
+            ),
+        )
+
+    def _normalise_income_attribution(self, ia):
+        return self._normalise_source(
+            ia,
+            source="income_attribution",
+            tag="Income Attribution Alert Comment",
+            date_column="as_of_date",
+            desk_column="perimeter_name",
+            perimeter_column="perimeter_name",
+            review_type=pd.Series("IA Comment", index=ia.index),
+            metric_name=pd.Series("Income Attribution", index=ia.index),
+            detail_fields=(
+                ("mmg_bl_comment", "MMG BL Comment"),
+                ("mmg_xbc_comment", "MMG XBC Comment"),
+                ("managerial_validation_comment", "Managerial Validation Comment"),
+            ),
+        )
+
+    def _normalise_pnl(self, pnl):
+        pnl = pnl.assign(_perimeter_name="Not provided")
+        return self._normalise_source(
+            pnl,
+            source="pnl",
+            tag="PnL Comment",
+            date_column="Date",
+            desk_column="Trading Desk",
+            perimeter_column="_perimeter_name",
+            review_type=pd.Series("PnL Comment", index=pnl.index),
+            metric_name=pd.Series("PnL", index=pnl.index),
+            detail_fields=(("Comments", "Comment"),),
+        )
+
+    def _render_evidence(self, source_rows):
+        """Add citation framing to normalised source rows and expose the public contract."""
+        if source_rows.empty:
+            return pd.DataFrame(columns=EVIDENCE_COLUMNS)
+
+        def render(row):
+            metadata = [
+                f"Evidence ID: {row['source_row_id']}",
+                f"Source: {row['source']}",
+                f"Desk: {row['desk']}",
+                f"Perimeter: {row['perimeter_name']}",
+                f"Metric: {row['metric_name']}",
             ]
-            for comments, (_, row) in zip(
-                grouped["Comment_concated"], grouped.iterrows()
+            return self.wrap_comment(row["tag"], row["as_of_date"], "\n".join(
+                metadata + [row["details"]]
+            ))
+
+        evidence = source_rows.copy()
+        evidence["evidence_text"] = evidence.apply(render, axis=1)
+        return evidence[EVIDENCE_COLUMNS].sort_values(
+            ["as_of_date", "review_type", "source", "source_row_id"], kind="stable"
+        ).reset_index(drop=True)
+
+    def build_evidence(self, desks):
+        """Return one prompt-ready evidence row for every in-scope source record.
+
+        VAR and SVAR share ``VAR_SVAR Comment`` and are therefore reviewed in
+        one task, while their individual metric names remain in the evidence.
+        """
+        desks = self._normalise_desks(desks)
+        logger.info("Building canonical review evidence for desks=%s", desks)
+
+        cert = self._filter_certification(desks)
+        ia = self._filter_income_attribution(desks)
+        pnl = self._filter_pnl(desks)
+        self._write_source_extracts(cert, ia, pnl)
+
+        source_rows = pd.concat([
+            self._normalise_certification(cert),
+            self._normalise_income_attribution(ia),
+            self._normalise_pnl(pnl),
+        ])
+        evidence = self._render_evidence(source_rows)
+        if evidence.empty:
+            logger.warning("No in-scope evidence rows found for desks=%s", desks)
+        else:
+            logger.info(
+                "Built canonical review evidence | %d row(s) | %d unique source record(s)",
+                len(evidence), evidence["source_row_id"].nunique(),
             )
-        ]
-        return grouped[["as_of_date", IA_COL]]
-
-    def process_pnl_comments(self, desks):
-        logger.debug("Processing PnL comments | desks=%s", desks)
-        df = self.pnl_comment_df.dropna(subset=["Comments"])
-        df["Comments"] = df["Comments"].astype(str)
-        df["Trading Desk"] = df["Trading Desk"].astype(str)
-        # Use filtering with regex for PnL comments
-        if isinstance(desks, str):
-            desks = [desks]
-        pattern = r"(?:" + "|".join(map(re.escape, desks)) + r")"
-        filtered = df[
-            df["Comments"].str.contains(pattern, na=False)
-            | df["Trading Desk"].str.contains(pattern, na=False)
-        ]
-        self.to_excel(filtered, os.path.join(self.output_dir, "PnL_Comment.xlsx"))
-        filtered = self._prepare_as_of_date(filtered, date_col="Date")
-        filtered[PNL_COL] = filtered.apply(
-            lambda row: self.wrap_comment("PnL comments", row["Date"], row["Comments"]),
-            axis=1,
-        )
-        return filtered[["Date", PNL_COL]].rename(
-            columns={"Date": "as_of_date"}
-        )
-
-    def merge_comments(self, desks):
-        logger.info("Merging comments for desks=%s", desks)
-        var_svar = self.process_var_svar(desks)
-        stress_test = self.process_stress_test(desks)
-        risk = self.process_risk_comments(desks)
-        ia = self.process_ia_alerts(desks)
-        pnl = self.process_pnl_comments(desks)
-
-        # Merge all on as_of_date with outer joins
-        merged = ia.merge(var_svar, on="as_of_date", how="outer")
-        merged = merged.merge(stress_test, on="as_of_date", how="outer")
-        merged = merged.merge(pnl, on="as_of_date", how="outer")
-        merged = merged.merge(risk, on="as_of_date", how="outer")
-        logger.info("Merged comments | %d row(s) across %d date(s)",
-                    len(merged), merged["as_of_date"].nunique())
-        return merged
-
-    @staticmethod
-    def create_final_comment(merged_df):
-        def is_valid_comment(value):
-            return (
-                pd.notna(value)
-                and str(value).strip()
-                and str(value).strip().lower() != "nan"
-            )
-
-        def build_comment(
-            cert_comment, stress_test_comment, ia_comment, pnl_comment, risk_comment
-        ):
-            comments = []
-
-            if is_valid_comment(cert_comment):
-                comments.append("VAR_SVAR Alert and Comment:\n" + str(cert_comment))
-
-            if is_valid_comment(stress_test_comment):
-                comments.append(
-                    "Stress Test Alert and Comment:\n" + str(stress_test_comment)
-                )
-
-            if is_valid_comment(ia_comment):
-                comments.append(
-                    "Income Attribution Alert and Comment:\n" + str(ia_comment)
-                )
-
-            if is_valid_comment(pnl_comment):
-                comments.append("PnL Comment:\n" + str(pnl_comment))
-
-            if is_valid_comment(risk_comment):
-                comments.append("Risk Metrics Comment:\n" + str(risk_comment))
-
-            return "\n\n".join(comments) if comments else pd.NA
-
-        comment_columns = [
-            VAR_SVAR_COL,
-            STRESS_TEST_COL,
-            IA_COL,
-            PNL_COL,
-            RISK_METRICS_COL,
-        ]
-
-        for col in comment_columns:
-            if col in merged_df.columns:
-                merged_df = merged_df.explode(col)
-
-        merged_df["All Comment for LLM"] = merged_df.apply(
-            lambda row: build_comment(
-                row.get(VAR_SVAR_COL),
-                row.get(STRESS_TEST_COL),
-                row.get(IA_COL),
-                row.get(PNL_COL),
-                row.get(RISK_METRICS_COL),
-            ),
-            axis=1,
-        )
-
-        return merged_df
+        return evidence
