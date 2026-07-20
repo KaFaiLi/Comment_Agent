@@ -1,62 +1,57 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 
+_AUDITOR_SYSTEM_CONTEXT = """Act as a market activities auditor reviewing Risk department comments for trading-desk activity.
+Use only the supplied comments as evidence. Treat the comments as exception-driven records: missing daily comments are normal and must not be described as suspicious by themselves.
+Prioritize findings by business materiality, recurrence, control impact, unexplained PnL movement, risk-metric breaches, missing or weak managerial validation, and technical/data-quality issues.
+Assess VAR and SVAR together when both appear, while clearly stating whether each finding relates to VAR, SVAR, or both.
+Write in confident, professional business-finance English. Be concise but specific: identify products, underlyings, maturities, risk factors, desks, dates, and control implications when the evidence supports them.
+Do not use unsupported assumptions, generic examples, or invented references. Avoid the phrases "for example", "for instance", and "such as".
+Each comment is prefixed with a bracketed citation ID such as [C3]. In each topic's references field, cite those IDs only; never cite a raw date and never cite an ID that is not shown.
+"""
+
+
 recurrentPrompt = ChatPromptTemplate(
     [
         (
-            """Act as a market activities auditor, your task is to analyze the comments provided by the risk department.
-        Your analysis should focus on VaR/SVAR/Stress Test/PnL/Risk Metrics observed across the date range provided.
-        When the evidence contains VAR and SVAR or multiple risk metrics, assess them together as one paired risk view while clearly stating whether each finding relates to VAR, SVAR, or both.
-        You should prioritize in analysing the impact on PnL, ususal activites and using risk metrics comments to aid your analysis.
-        Ensure your response adheres strictly to the structured format outlined above. Your analysis should be concise, comprehensive, and focused on delivering actionable insights.
-        Please be aware that the comments is not provided on daily basis, comments is only recorded when there is an alert or required. It is normal.
-        In your response, you NEED to put your reference and indicate the days that you found in the comments to support your answer. You are also encouraged to use the content in the comments to support your analysis. For example, including the CCP entity name while you analysing counterparty risk. DO NOT MAKE UP REFERENCE.
-        Each comment is prefixed with a bracketed citation ID such as [C3]. In each topic's references field, cite those IDs only — never a raw date, never an ID that is not shown.
-        Reponse in confident professional business finance English. Prevent using "For example"/"For instance"/"Such as".
-        Be as details as possible. You have infinite token to work with.
+            "system",
+            _AUDITOR_SYSTEM_CONTEXT
+            + """
+Report up to 3 recurrent topics. Each topic must be a self-contained object with context, recurrence reason, implications, pattern, and references.
+Focus recurrent-topic analysis on repeated risk themes, repeated desk explanations, recurring validation gaps, recurring control issues, and recurring technical/data-quality issues.
+If a technical issue is present, list each distinct issue in tech_issues. If none is evidenced, return an empty list.
 
-        Report up to 3 recurrent topics. Each topic is one object carrying its own explanation, pattern and references — keep everything about a topic inside that object.
-
-        <example>
-        {{
+<example>
+{{
     "topics": [
         {{
-            "topic": "System Performance Issues",
-            "context": "Multiple system slowdowns and outages affecting trading operations",
-            "recurrence_reason": "Aging infrastructure and increased trading volume",
-            "implications": "Risk of missed trades and financial losses",
-            "pattern": "System issues occur more frequently during peak trading hours",
+            "topic": "Repeated Risk Metric Breaches",
+            "context": "Several comments describe repeated limit or threshold alerts affecting derivatives activity.",
+            "recurrence_reason": "The comments indicate recurring exposure changes and repeated validation needs rather than a one-off operational event.",
+            "implications": "Repeated breaches may indicate elevated market-risk monitoring pressure and may require targeted review of limits, hedging, and desk escalation discipline.",
+            "pattern": "Alerts are concentrated around the same desk activity across multiple evidence records in the quarter.",
             "references": ["[C1]", "[C2]"]
         }},
         {{
-            "topic": "Trading Limit Breaches",
-            "context": "Frequent breaches of trading limits in derivatives",
-            "recurrence_reason": "Insufficient monitoring and control mechanisms",
-            "implications": "Potential regulatory violations and increased market risk",
-            "pattern": "Trading limit breaches concentrated in volatile market conditions",
+            "topic": "Recurring Data Quality Friction",
+            "context": "The evidence points to repeated issues in comment completeness or system-generated alert details.",
+            "recurrence_reason": "The recurrence appears linked to process or system consistency rather than a single market event.",
+            "implications": "Persistent data-quality friction can reduce auditability and delay effective challenge of risk explanations.",
+            "pattern": "Similar data-quality wording appears across separate evidence records.",
             "references": ["[C3]"]
-        }},
-        {{
-            "topic": "Data Quality Problems",
-            "context": "Persistent data quality issues in trade reporting",
-            "recurrence_reason": "Manual data entry processes and system integration gaps",
-            "implications": "Risk of inaccurate risk assessment and reporting",
-            "pattern": "Data quality issues persist throughout the reporting cycle",
-            "references": ["[C4]", "[C5]"]
         }}
     ],
     "tech_issues": [
-        "Trading system performance degradation",
-        "Database synchronization failures",
-        "Report generation delays"
+        "Repeated system-generated alert detail gaps",
+        "Recurring comment completeness issue"
     ],
-    "summary": "Recurring issues centered around system performance, trading limit breaches, and data quality problems pose significant operational and regulatory risks."
-}}</example>"""
+    "summary": "Recurring themes are concentrated in risk-metric monitoring and evidence quality, with potential implications for escalation discipline and auditability."
+}}</example>""",
         ),
         (
             "human",
-            """ Review the following comments provided by Risk department:
-    <comments>{query}</comments>""",
+            """Review the following comments provided by the Risk department:
+<comments>{query}</comments>""",
         ),
     ]
 )
@@ -66,97 +61,68 @@ KeyVariationPrompt = ChatPromptTemplate(
     [
         (
             "system",
-            """Act as a market activities auditor, your task is to analyze the comments provided by the risk department.
-        Your analysis should focus on VaR/SVAR/Stress Test/PnL observed across the date range provided.
-        When the evidence contains VAR and SVAR or multiple risk metrics, assess them together as one paired risk view while clearly stating whether each finding relates to VAR, SVAR, or both.
-        You should prioritize in analysing the impact on PnL, ususal activites and using risk metrics comments to aid your analysis.
-        Ensure your response adheres strictly to the structured format outlined above. Your analysis should be concise, comprehensive, and focused on delivering actionable insights.
-        Please be aware that the comments is not provided on daily basis, comments is only recorded when there is an alert or required. It is normal.
-        In your response, you NEED to put your reference and indicate the days that you found in the comments to support your answer. You are also encouraged to use the content in the comments to support your analysis. For example, including the CCP entity name while you analysing counterparty risk. DO NOT MAKE UP REFERENCE.
-        Each comment is prefixed with a bracketed citation ID such as [C3]. In each topic's references field, cite those IDs only — never a raw date, never an ID that is not shown.
-        Reponse in confident professional business finance English. Prevent using "For example"/"For instance"/"Such as".
-        Be as details as possible. You have infinite token to work with.
+            _AUDITOR_SYSTEM_CONTEXT
+            + """
+Report up to 3 significant metric variations. Each topic must be a self-contained object with analysis points and references.
+Focus key-variation analysis on material PnL moves, VAR/SVAR changes, stress-test movements, risk-factor concentrations, unusual desk explanations, and breaks between risk comments and normal desk activity.
+Each analysis point should explain why the movement matters to audit, risk management, or management reporting. State uncertainty clearly when the evidence is limited.
 
-        Report up to 3 significant metric variations. Each topic is one object carrying its own analysis points and references — keep everything about a topic inside that object.
-
-        <example>
-        {{
+<example>
+{{
     "topics": [
         {{
-            "topic": "Value at Risk (VaR) Spikes",
+            "topic": "VAR and SVAR Increase on Rates Exposure",
             "analysis": [
-                "This significant rise indicates a heightened exposure to market risk, suggesting that the potential for loss in the portfolio has escalated. Such an increase may be attributed to increased volatility in the market or changes in the underlying assets' risk profiles.",
-                "Multiple alerts were activated due to cascading risk events in related positions. This suggests that the increase in risk is not isolated but interconnected with other positions, potentially leading to a systemic risk scenario.",
-                "An unusual concentration of risk has been observed in the foreign exchange (FX) derivatives portfolio. This concentration could expose the firm to significant losses if adverse market movements occur, particularly if the positions are correlated with volatile currencies."
+                "The cited comments indicate a material increase in VAR and SVAR linked to rates exposure, which raises market-risk monitoring significance for the quarter.",
+                "The movement may require audit challenge of whether hedging and limit monitoring remained aligned with the desk activity described in the evidence.",
+                "The evidence supports focus on the identified risk factor and dates, but does not support conclusions beyond the cited records."
             ],
             "references": ["[C1]", "[C2]"]
         }},
         {{
-            "topic": "Position Limit Exceedances",
+            "topic": "Unusual PnL Movement Requiring Management Challenge",
             "analysis": [
-                "Exceeding position limits is a critical concern as it indicates a breach of risk management protocols. This could lead to regulatory scrutiny and potential penalties, as well as increased risk exposure for the firm.",
-                "High-priority alerts were triggered due to the breach of multiple thresholds, indicating that the risk management system is actively monitoring and responding to these exceedances. This may require immediate action to mitigate risk.",
-                "A detailed risk factor analysis reveals concentrated exposure in specific tenors, which could lead to vulnerabilities if market conditions shift. This concentration may necessitate a review of the trading strategy and risk management practices to ensure diversification and risk mitigation."
+                "The PnL comment describes an unusual movement relative to normal desk activity, making it a priority item for explanation quality and supervisory validation.",
+                "The review should verify whether the stated driver, underlying, maturity, and risk factor are sufficiently supported by the source comment."
             ],
             "references": ["[C3]"]
-        }},
-        {{
-            "topic": "Trading Volume Anomalies",
-            "analysis": [
-                "Such a dramatic increase in trading volume may indicate heightened market activity or speculative trading behavior. This could lead to increased volatility and potential liquidity issues, especially if the market experiences sudden shifts.",
-                "An alert cascade was triggered by correlated position increases, suggesting that the rise in trading volume is not uniform across all positions but rather concentrated in specific areas. This correlation could amplify risk if market conditions change rapidly.",
-                "Current risk metrics indicate potential market impact concerns, suggesting that the increased trading volume could affect market prices and liquidity. This necessitates close monitoring to avoid adverse effects on the firm's positions and overall market stability."
-            ],
-            "references": ["[C4]", "[C5]"]
         }}
     ],
-    "summary": "Significant variations in key risk metrics including VaR spikes, position limit breaches, and trading volume anomalies indicate elevated risk levels requiring immediate attention."
+    "summary": "The most significant variations relate to market-risk metric movement and unusual PnL explanation quality, requiring focused audit challenge of cited desk activity."
 }}</example>""",
         ),
         (
             "human",
-            """ Review the following comments provided by Risk department:
-        <comments>{query}</comments>""",
+            """Review the following comments provided by the Risk department:
+<comments>{query}</comments>""",
         ),
     ]
 )
 
+
 xxm_prompt = """
-        Act as a market activities auditor to summarize the following reviews, provide a concise and comprehensive executive summary in professional business English. You do not need to provide recommendation.
-        You should provide a small summary for each quater, explain the unusual or most important PnL split per risk factor value identified in the review, and to precize all the underlyings and maturities involved. Write and a professional manner and be assertive, prevent using "such as", "for example".
-        The reviews may not following with natural year. The reviews may only be half year, you are only require to summary the reviews provided. Follow the response format for your answer. If there is no reviews, just return: no quaterly reviews found.
+Act as a market activities auditor writing an executive summary from the quarterly reviews below.
+Use only the review content provided. Do not add recommendations unless the review content explicitly supports them.
+Summarize the most material findings first, then provide concise quarter-by-quarter coverage. Identify unusual or important PnL splits, risk factors, underlyings, maturities, desks, and dates when they are present in the reviews.
+The review period may cover fewer than four quarters or may not align to a calendar year; summarize only the quarters provided. If no reviews are provided, return: No quarterly reviews found.
+Write in professional business English. Avoid the phrases "for example", "for instance", and "such as".
 
-        **Response Format:**
-        # Executive Summary:
-        [Provide a Comprehensive summary of all the reviews , highlighting the most critical insights upfront.]
+Response format:
+# Executive Summary
+[Concise summary of the most critical insights across all supplied reviews.]
 
-        ## Summary the quarterly reviews by quarter:
-        ### Quarter 2023Q4 Summary:
-            -First Key Metrics Topic identified in quarterly reviews
-                - Comprehensive summary of first key metrics topic
-            -Second Key metrics for the first quarterly reviews
-                - Comprehensive summary of second key metrics topic
-            -Third Key metrics for the first quarterly reviews
-                - Comprehensive summary of third key metrics topic
+## Quarterly Review Summary
+### Quarter [Quarter]
+- [Key metric or recurrent topic]
+  - [Business-focused explanation, including supported PnL/risk-factor/underlying/maturity details.]
 
-        ### Quarter 2024Q1 Summary:
-            -First Key metrics for the seconcd quarterly reviews
-                - Comprehensive summary of first key metrics topic
-            -Second Key metrics for the seconcd quarterly reviews
-                - Comprehensive summary of second key metrics topic
-            -Third Key metrics for the seconcd quarterly reviews
-                - Comprehensive summary of third key metrics topic
+## Recurrent Topics Across the Review Period
+- [Most important recurrent topic and business significance.]
+- [Second recurrent topic and business significance, if supported.]
+- [Third recurrent topic and business significance, if supported.]
 
-        [Contintue for all the quarterly reviews]
+## Technical Issues
+- [Technical or data-quality issue evidenced in the reviews, or "No specific technical issues reported."]
 
-        ## Recurrent Topic Through out all the review:
-        [First most recurrent topic through out all the reviews, with a Comprehensive summary.]
-        [Second most recurrent topic through out all the reviews, with a Comprehensive summary.]
-        [Third most recurrent topic through out all the reviews, with a Comprehensive summary.]
-
-        ## Technical Issues:
-        1. Any technique issue
-        Existence of error message and absence of comments does not related to suspicious.
-
-        Reviews to summary:
+Reviews to summarize:
 """

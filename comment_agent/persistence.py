@@ -1,4 +1,6 @@
+import json
 import os
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -47,6 +49,64 @@ def save_intermediates(evidence: pd.DataFrame, output_dir: str) -> str:
         "Saved intermediate comments | %d day(s) | %d evidence row(s) | %s",
         len(daily), len(evidence), path,
     )
+    return path
+
+
+def _review_task_counts(quarterly_reviews: dict) -> dict:
+    return {
+        comment_type: len(reviews or {})
+        for comment_type, reviews in (quarterly_reviews or {}).items()
+    }
+
+
+def save_run_manifest(*, output_dir: str, selected_desks, selected_comment_types,
+                      evidence: pd.DataFrame, cfg, token_usage: dict,
+                      quarterly_reviews: dict, input_files: dict | None = None) -> str:
+    """Persist non-secret run metadata for auditability and reproducibility."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, "run_manifest.json")
+
+    if evidence is None or evidence.empty:
+        date_range = {"start": None, "end": None}
+        evidence_rows_by_type = {}
+        evidence_rows_by_source = {}
+    else:
+        dates = pd.to_datetime(evidence["as_of_date"], errors="coerce")
+        date_range = {
+            "start": dates.min().date().isoformat() if dates.notna().any() else None,
+            "end": dates.max().date().isoformat() if dates.notna().any() else None,
+        }
+        evidence_rows_by_type = (
+            evidence["review_type"].value_counts().sort_index().to_dict()
+        )
+        evidence_rows_by_source = (
+            evidence["source"].value_counts().sort_index().to_dict()
+        )
+
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "selected_desks": list(selected_desks or []),
+        "selected_comment_types": list(selected_comment_types or []),
+        "input_files": input_files or {},
+        "evidence_row_count": 0 if evidence is None else int(len(evidence)),
+        "evidence_rows_by_type": evidence_rows_by_type,
+        "evidence_rows_by_source": evidence_rows_by_source,
+        "date_range": date_range,
+        "review_task_counts": _review_task_counts(quarterly_reviews),
+        "token_usage": token_usage or {},
+        "config": {
+            "azure_deployment": getattr(cfg, "azure_deployment", None),
+            "api_version": getattr(cfg, "api_version", None),
+            "max_tokens": getattr(cfg, "max_tokens", None),
+            "temperature": getattr(cfg, "temperature", None),
+            "max_workers": getattr(cfg, "max_workers", None),
+            "max_retries": getattr(cfg, "max_retries", None),
+            "output_dir": getattr(cfg, "output_dir", None),
+        },
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, indent=2, sort_keys=True)
+    logger.info("Saved run manifest | %s", path)
     return path
 
 

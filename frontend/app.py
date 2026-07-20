@@ -80,6 +80,20 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
 
     persistence.save_results(reviews, markdown_by_type, summary_by_type,
                              cfg.output_dir, DocumentExporter())
+    persistence.save_run_manifest(
+        output_dir=cfg.output_dir,
+        selected_desks=desks,
+        selected_comment_types=selected,
+        evidence=evidence,
+        cfg=cfg,
+        token_usage=service.usage,
+        quarterly_reviews=reviews,
+        input_files={
+            "certification": getattr(cert, "name", None),
+            "income_attribution": getattr(ia, "name", None),
+            "pnl": getattr(pnl, "name", None),
+        },
+    )
     logger.info("Review generation complete | comment types produced=%d",
                 len(markdown_by_type))
 

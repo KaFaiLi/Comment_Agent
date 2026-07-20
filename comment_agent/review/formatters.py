@@ -61,9 +61,10 @@ def format_recurrent_topics(data, index=None):
 
     output.append("### Technical Issues")
     tech_issues = data.tech_issues or []
-    output.append(
-        tech_issues[0] if tech_issues else "No specific technical issues reported."
-    )
+    if tech_issues:
+        output.append("\n".join(f"- {issue}" for issue in tech_issues))
+    else:
+        output.append("No specific technical issues reported.")
 
     appendix = _sources_appendix([t.references or [] for t in topics], index)
     if appendix:

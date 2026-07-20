@@ -31,14 +31,17 @@ def test_format_recurrent_topics_handles_empty_tech():
 
 
 def test_format_recurrent_topics_renders_explanation_bullets():
-    data = Recurrent(topics=[_recurrent_item()], tech_issues=["glitch"], summary="s")
+    data = Recurrent(
+        topics=[_recurrent_item()], tech_issues=["glitch", "feed break"], summary="s"
+    )
     out = format_recurrent_topics(data)
     assert "Recurrent Topic 1: T" in out
     assert "- Contextual Explanation: c" in out
     assert "- Reasons for Recurrence: why" in out
     assert "- Implications and Significance: impact" in out
     assert "**Pattern for Topic 1:** p" in out
-    assert "glitch" in out
+    assert "- glitch" in out
+    assert "- feed break" in out
 
 
 _IDX = {
