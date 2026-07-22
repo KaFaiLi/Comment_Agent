@@ -1,5 +1,6 @@
 import os
 import threading
+from datetime import datetime, timezone
 
 import streamlit as st
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
@@ -42,6 +43,7 @@ def init_session_state():
         "selected_types": COMMENT_TYPE_OPTIONS,
         "token_usage": None,
         "run_manifest_path": None,
+        "report_context": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -79,8 +81,20 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
         markdown_by_type[comment_type] = service.generate_markdown_content(
             comment_type, qreviews, summary=summary)
 
+    dates = sorted(evidence["as_of_date"].dropna().astype(str).unique()) if not evidence.empty else []
+    report_context = {
+        "report_id": f"CAR-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}",
+        "generated_at": datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
+        "review_status": "AI-generated — auditor validation required",
+        "desks": ", ".join(desks),
+        "date_range": f"{dates[0]} to {dates[-1]}" if dates else "No in-scope evidence",
+        "evidence_rows": len(evidence),
+        "input_files": ", ".join((cert.name, ia.name, pnl.name)),
+    }
+
     result_paths = persistence.save_results(
-        reviews, markdown_by_type, summary_by_type, cfg.output_dir, DocumentExporter()
+        reviews, markdown_by_type, summary_by_type, cfg.output_dir, DocumentExporter(),
+        report_context=report_context,
     )
     manifest_path = persistence.save_run_manifest(
         output_dir=cfg.output_dir,
@@ -107,6 +121,7 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
     st.session_state.selected_types = selected
     st.session_state.token_usage = service.usage
     st.session_state.run_manifest_path = manifest_path
+    st.session_state.report_context = report_context
 
 
 def render_results():
@@ -118,6 +133,7 @@ def render_results():
     if manifest_path:
         st.caption(f"Run manifest saved: {manifest_path}")
     selected = st.session_state.selected_types
+    report_context = st.session_state.report_context
     if not selected:
         return
     tabs = st.tabs(selected)
@@ -131,13 +147,20 @@ def render_results():
             st.markdown(content)
             safe = comment_type.replace(" ", "_").lower()
             st.download_button(
-                "Download Full Review", exporter.get_word_doc_buffer_from_markdown(content),
+                "Download Detailed Evidence Report",
+                exporter.get_word_doc_buffer_from_markdown(
+                    content, comment_type, reviews=reviews.get(comment_type, {}),
+                    executive_summary=summary, report_context=report_context,
+                ),
                 file_name=f"{safe}_full_review.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
             st.download_button(
-                "Download Executive Summary",
-                exporter.get_word_doc_buffer_from_executive_summary(summary, comment_type),
+                "Download Executive Review",
+                exporter.get_word_doc_buffer_from_executive_summary(
+                    summary, comment_type, reviews=reviews.get(comment_type, {}),
+                    report_context=report_context,
+                ),
                 file_name=f"{safe}_executive_summary.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )

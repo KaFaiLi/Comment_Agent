@@ -54,7 +54,8 @@ def save_intermediates(evidence: pd.DataFrame, output_dir: str) -> str:
 
 
 def save_results(quarterly_reviews: dict, markdown_by_type: dict,
-                 summary_by_type: dict, output_dir: str, exporter) -> list[str]:
+                 summary_by_type: dict, output_dir: str, exporter,
+                 report_context: dict | None = None) -> list[str]:
     """Save review outputs and return the paths written for this run."""
     os.makedirs(output_dir, exist_ok=True)
     paths = []
@@ -69,12 +70,19 @@ def save_results(quarterly_reviews: dict, markdown_by_type: dict,
 
         paths.append(
             exporter.convert_and_save_markdown(
-                markdown, comment_type, output_dir=output_dir
+                markdown, comment_type, output_dir=output_dir,
+                reviews=quarterly_reviews.get(comment_type, {}),
+                executive_summary=summary_by_type.get(comment_type, ""),
+                report_context=report_context,
             )
         )
         summary = summary_by_type.get(comment_type, "")
         paths.append(
-            exporter.save_executive_summary(summary, comment_type, output_dir=output_dir)
+            exporter.save_executive_summary(
+                summary, comment_type, output_dir=output_dir,
+                reviews=quarterly_reviews.get(comment_type, {}),
+                report_context=report_context,
+            )
         )
     logger.info("Saved results for %d comment type(s) to %s",
                 len(markdown_by_type), output_dir)
