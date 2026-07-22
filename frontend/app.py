@@ -41,6 +41,7 @@ def init_session_state():
         "executive_summaries": {},
         "selected_types": COMMENT_TYPE_OPTIONS,
         "token_usage": None,
+        "run_manifest_path": None,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -66,7 +67,7 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
     logger.info("Starting review generation | desks=%s | types=%s", desks, selected)
     proc = AlertProcessor(cert, ia, pnl, output_dir=cfg.output_dir)
     evidence = proc.build_evidence(desks)
-    persistence.save_intermediates(evidence, cfg.output_dir)
+    intermediate_path = persistence.save_intermediates(evidence, cfg.output_dir)
 
     service = CommentReviewService(cfg, status_callback=status)
     reviews = service.review(evidence, selected)
@@ -78,8 +79,25 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
         markdown_by_type[comment_type] = service.generate_markdown_content(
             comment_type, qreviews, summary=summary)
 
-    persistence.save_results(reviews, markdown_by_type, summary_by_type,
-                             cfg.output_dir, DocumentExporter())
+    result_paths = persistence.save_results(
+        reviews, markdown_by_type, summary_by_type, cfg.output_dir, DocumentExporter()
+    )
+    manifest_path = persistence.save_run_manifest(
+        output_dir=cfg.output_dir,
+        desks=desks,
+        selected_comment_types=selected,
+        evidence=evidence,
+        quarterly_reviews=reviews,
+        token_usage=service.usage,
+        artifacts=[*proc.source_extract_paths, intermediate_path, *result_paths],
+        input_files={
+            "certification_alerts": cert.name,
+            "income_attribution_alerts": ia.name,
+            "pnl_comments": pnl.name,
+        },
+        deployment=cfg.azure_deployment,
+        api_version=cfg.api_version,
+    )
     logger.info("Review generation complete | comment types produced=%d",
                 len(markdown_by_type))
 
@@ -88,6 +106,7 @@ def run_generation(cfg, cert, ia, pnl, desks, selected, status):
     st.session_state.executive_summaries = summary_by_type
     st.session_state.selected_types = selected
     st.session_state.token_usage = service.usage
+    st.session_state.run_manifest_path = manifest_path
 
 
 def render_results():
@@ -95,6 +114,9 @@ def render_results():
     if not reviews:
         return
     exporter = DocumentExporter()
+    manifest_path = st.session_state.run_manifest_path
+    if manifest_path:
+        st.caption(f"Run manifest saved: {manifest_path}")
     selected = st.session_state.selected_types
     if not selected:
         return

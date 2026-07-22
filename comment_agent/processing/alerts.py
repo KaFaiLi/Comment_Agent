@@ -24,6 +24,7 @@ class AlertProcessor:
         self.ia_alert_df = pd.read_csv(ia_path)
         self.pnl_comment_df = pd.read_csv(pnl_path)
         self.output_dir = output_dir
+        self.source_extract_paths = []
         os.makedirs(output_dir, exist_ok=True)
 
         self._require_columns(self.cert_df, [
@@ -104,20 +105,28 @@ class AlertProcessor:
 
     def _write_source_extracts(self, cert, ia, pnl):
         """Preserve the existing source-extract workbooks outside the LLM pipeline."""
+        paths = [
+            os.path.join(self.output_dir, "Var_SVaR_Comments.xlsx"),
+            os.path.join(self.output_dir, "Stress_Test_Comments.xlsx"),
+            os.path.join(self.output_dir, "Risk_Metrics_Comment.xlsx"),
+            os.path.join(self.output_dir, "Income_Attribution_Comment.xlsx"),
+            os.path.join(self.output_dir, "PnL_Comment.xlsx"),
+        ]
         self.to_excel(
             cert[cert["indicator_name"].isin(["VAR", "SVAR"])],
-            os.path.join(self.output_dir, "Var_SVaR_Comments.xlsx"),
+            paths[0],
         )
         self.to_excel(
             cert[cert["indicator_name"] == "STRESS TEST"],
-            os.path.join(self.output_dir, "Stress_Test_Comments.xlsx"),
+            paths[1],
         )
         self.to_excel(
             cert[~cert["indicator_name"].isin(["VAR", "SVAR", "STRESS TEST"])],
-            os.path.join(self.output_dir, "Risk_Metrics_Comment.xlsx"),
+            paths[2],
         )
-        self.to_excel(ia, os.path.join(self.output_dir, "Income_Attribution_Comment.xlsx"))
-        self.to_excel(pnl, os.path.join(self.output_dir, "PnL_Comment.xlsx"))
+        self.to_excel(ia, paths[3])
+        self.to_excel(pnl, paths[4])
+        return paths
 
     def _normalise_source(self, df, *, source, tag, date_column, desk_column,
                           perimeter_column, review_type, metric_name, detail_fields):
@@ -233,7 +242,7 @@ class AlertProcessor:
         cert = self._filter_certification(desks)
         ia = self._filter_income_attribution(desks)
         pnl = self._filter_pnl(desks)
-        self._write_source_extracts(cert, ia, pnl)
+        self.source_extract_paths = self._write_source_extracts(cert, ia, pnl)
 
         source_rows = pd.concat([
             self._normalise_certification(cert),
