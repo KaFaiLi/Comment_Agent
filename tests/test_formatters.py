@@ -41,6 +41,18 @@ def test_format_recurrent_topics_renders_explanation_bullets():
     assert "glitch" in out
 
 
+def test_format_recurrent_topics_renders_all_technical_issues():
+    data = Recurrent(
+        topics=[_recurrent_item()],
+        tech_issues=["Booking feed delay", "Risk-engine outage"],
+        summary="s",
+    )
+    out = format_recurrent_topics(data)
+
+    assert "- Booking feed delay" in out
+    assert "- Risk-engine outage" in out
+
+
 _IDX = {
     "C1": {"id": "C1", "tag": "Risk Metrics Alert Comment", "date": "2024-01-15", "text": "Indicator Type: VAR"},
 }

@@ -30,6 +30,12 @@ def test_prompts_render():
     assert isinstance(xxm_prompt, str) and len(xxm_prompt) > 0
 
 
+def test_recurrent_prompt_uses_a_system_message_for_instructions():
+    messages = recurrentPrompt.invoke({"query": "some comment"}).to_messages()
+    assert messages[0].type == "system"
+    assert messages[1].type == "human"
+
+
 def test_reference_fields_instruct_bracket_ids():
     for item_schema in (KeyMetricItem, RecurrentTopicItem):
         desc = item_schema.model_fields["references"].description

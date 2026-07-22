@@ -4,6 +4,7 @@ from langchain_core.prompts import ChatPromptTemplate
 recurrentPrompt = ChatPromptTemplate(
     [
         (
+            "system",
             """Act as a market activities auditor, your task is to analyze the comments provided by the risk department.
         Your analysis should focus on VaR/SVAR/Stress Test/PnL/Risk Metrics observed across the date range provided.
         When the evidence contains VAR and SVAR or multiple risk metrics, assess them together as one paired risk view while clearly stating whether each finding relates to VAR, SVAR, or both.
