@@ -147,7 +147,7 @@ def render_results():
             st.markdown(content)
             safe = comment_type.replace(" ", "_").lower()
             st.download_button(
-                "Download Detailed Evidence Report",
+                "Download Detailed Full Review",
                 exporter.get_word_doc_buffer_from_markdown(
                     content, comment_type, reviews=reviews.get(comment_type, {}),
                     executive_summary=summary, report_context=report_context,

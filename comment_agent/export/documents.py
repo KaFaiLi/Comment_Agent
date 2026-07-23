@@ -21,6 +21,8 @@ logger = get_logger(__name__)
 _CONTENT_WIDTH_DXA = 9360
 _TABLE_INDENT_DXA = 120
 _CELL_MARGINS_DXA = {"top": 80, "bottom": 80, "start": 120, "end": 120}
+_REPORT_FONT = "Georgia"
+_THEME_FONT_ATTRIBUTES = ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme")
 _COLORS = {
     "ink": "000000",
     "title": "2E74B5",
@@ -42,9 +44,9 @@ class DocumentExporter:
 
     @staticmethod
     def _set_run_font(run, *, size=None, color=None, bold=None, italic=None):
-        run.font.name = "Georgia"
-        run._element.rPr.rFonts.set(qn("w:ascii"), "Georgia")
-        run._element.rPr.rFonts.set(qn("w:hAnsi"), "Georgia")
+        run.font.name = _REPORT_FONT
+        rfonts = run._element.get_or_add_rPr().get_or_add_rFonts()
+        DocumentExporter._set_georgia_rfonts(rfonts)
         if size is not None:
             run.font.size = Pt(size)
         if color is not None:
@@ -67,9 +69,7 @@ class DocumentExporter:
 
         styles = doc.styles
         normal = styles["Normal"]
-        normal.font.name = "Georgia"
-        normal._element.rPr.rFonts.set(qn("w:ascii"), "Georgia")
-        normal._element.rPr.rFonts.set(qn("w:hAnsi"), "Georgia")
+        cls._set_style_font(normal)
         normal.font.size = Pt(11)
         normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         normal.paragraph_format.space_before = Pt(0)
@@ -95,6 +95,7 @@ class DocumentExporter:
 
         bullet = styles["List Bullet"]
         bullet.base_style = normal
+        cls._set_style_font(bullet)
         bullet.paragraph_format.left_indent = Inches(0.5)
         bullet.paragraph_format.first_line_indent = Inches(-0.25)
         bullet.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -105,9 +106,7 @@ class DocumentExporter:
 
     @classmethod
     def _configure_style(cls, style, size, color, bold, before, after, *, alignment):
-        style.font.name = "Georgia"
-        style._element.rPr.rFonts.set(qn("w:ascii"), "Georgia")
-        style._element.rPr.rFonts.set(qn("w:hAnsi"), "Georgia")
+        cls._set_style_font(style)
         style.font.size = Pt(size)
         style.font.color.rgb = RGBColor.from_string(color)
         style.font.bold = bold
@@ -115,6 +114,21 @@ class DocumentExporter:
         style.paragraph_format.space_after = Pt(after)
         style.paragraph_format.line_spacing = 1.1
         style.paragraph_format.alignment = alignment
+
+    @staticmethod
+    def _set_style_font(style):
+        """Set Georgia for every script slot, including non-Latin text runs."""
+        style.font.name = _REPORT_FONT
+        rfonts = style.element.get_or_add_rPr().get_or_add_rFonts()
+        DocumentExporter._set_georgia_rfonts(rfonts)
+
+    @staticmethod
+    def _set_georgia_rfonts(rfonts):
+        """Apply Georgia directly and remove theme-font overrides."""
+        for font_slot in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+            rfonts.set(qn(font_slot), _REPORT_FONT)
+        for theme_attribute in _THEME_FONT_ATTRIBUTES:
+            rfonts.attrib.pop(qn(theme_attribute), None)
 
     @classmethod
     def _ensure_style(cls, doc, name, size, color, bold, before, after, *, alignment):
@@ -139,9 +153,9 @@ class DocumentExporter:
         paragraph = footer.paragraphs[0]
         cls._clear_paragraph(paragraph)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        run = paragraph.add_run("Confidential — Internal Use Only  |  Page ")
+        run = paragraph.add_run("Page ")
         cls._set_run_font(run, size=8, color=_COLORS["muted"])
-        cls._add_page_number_field(paragraph)
+        cls._add_page_number_field(paragraph, size=8, color=_COLORS["muted"])
 
     @staticmethod
     def _clear_paragraph(paragraph):
@@ -149,8 +163,9 @@ class DocumentExporter:
             paragraph._p.remove(child)
 
     @staticmethod
-    def _add_page_number_field(paragraph):
+    def _add_page_number_field(paragraph, *, size, color):
         run = paragraph.add_run()
+        DocumentExporter._set_run_font(run, size=size, color=color)
         begin = OxmlElement("w:fldChar")
         begin.set(qn("w:fldCharType"), "begin")
         instruction = OxmlElement("w:instrText")
@@ -509,8 +524,8 @@ class DocumentExporter:
                                       reviews=None, executive_summary=None,
                                       report_context=None) -> Document:
         """Build the evidence-oriented detailed report with quarterly sections."""
-        doc = cls._new_document(comment_type, "Detailed Evidence Report")
-        cls._add_masthead(doc, comment_type, "Detailed Evidence Report")
+        doc = cls._new_document(comment_type, "Detailed Full Review")
+        cls._add_masthead(doc, comment_type, "Detailed Full Review")
         cls._add_document_control(doc, comment_type, report_context)
         doc.add_heading("Executive Conclusion", level=1)
         conclusion = cls._executive_conclusion_text(executive_summary or markdown_content)

@@ -78,11 +78,26 @@ def test_executive_review_uses_the_requested_lean_layout():
     assert doc.styles["Report Title"].font.color.rgb == RGBColor(46, 116, 181)
     assert doc.styles["Report Title"].font.size == Pt(18)
     assert doc.styles["Normal"].font.name == "Georgia"
+    for style_name in ("Normal", "List Bullet", "Heading 1", "Heading 2", "Heading 3",
+                       "Report Title", "Report Subtitle", "Report Meta", "Report Callout",
+                       "Source Citation"):
+        rfonts = doc.styles[style_name].element.rPr.rFonts
+        assert all(rfonts.get(qn(font_slot)) == "Georgia"
+                   for font_slot in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"))
+        assert all(rfonts.get(qn(theme_attribute)) is None
+                   for theme_attribute in ("w:asciiTheme", "w:hAnsiTheme",
+                                           "w:eastAsiaTheme", "w:cstheme"))
     assert doc.styles["Normal"].paragraph_format.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY
     assert doc.styles["Heading 1"].font.color.rgb == RGBColor(46, 116, 181)
     table_properties = doc.tables[0]._tbl.tblPr
     assert table_properties.find(qn("w:tblW")).get(qn("w:w")) == "9360"
     assert table_properties.find(qn("w:tblInd")).get(qn("w:w")) == "120"
+    footer = doc.sections[0].footer.paragraphs[0]
+    assert footer.text == "Page 1"
+    assert "Confidential" not in footer.text
+    footer_rfonts = footer.runs[0]._element.rPr.rFonts
+    assert all(footer_rfonts.get(qn(font_slot)) == "Georgia"
+               for font_slot in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"))
 
 
 def test_detailed_review_contains_quarterly_evidence_and_all_technical_issues():
@@ -96,6 +111,8 @@ def test_detailed_review_contains_quarterly_evidence_and_all_technical_issues():
     )
     text = _document_text(doc)
 
+    assert "Detailed Full Review | PnL Comment" in text
+    assert "Detailed Evidence Report" not in text
     assert "Quarterly Detailed Review" in text
     assert "Quarter 2024Q3" in text
     assert "Quarter 2024Q4" in text
