@@ -2,6 +2,15 @@
 
 Streamlit tool that turns trading-desk risk-comment CSVs into per-quarter AI reviews and executive summaries (downloadable as Word docs).
 
+## Word reports
+
+For each selected comment type, the tool provides two Word downloads:
+
+- **Detailed Full Review** — the executive conclusion followed by quarterly evidence, key metric variations, recurrent topics, and cited sources.
+- **Executive Review** — a concise, management-facing review summary.
+
+Both reports use Georgia throughout and have a page-number-only footer.
+
 ## Setup
 
     uv sync
