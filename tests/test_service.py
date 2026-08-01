@@ -51,14 +51,18 @@ def _recurrent(refs_per_topic):
 
 def _patch(svc, key_refs=(["2024-01-01"],), rec_refs=(["r"],)):
     svc.usage = {"input": 0, "cached": 0, "output": 0}
-    svc.key_llm = type("K", (), {"invoke": lambda self, p, config=None: _key_variation(key_refs)})()
-    svc.recurrent_llm = type("R", (), {"invoke": lambda self, p, config=None: _recurrent(rec_refs)})()
+    svc.key_variation_model = type(
+        "K", (), {"invoke": lambda self, p, config=None: _key_variation(key_refs)}
+    )()
+    svc.recurrent_topics_model = type(
+        "R", (), {"invoke": lambda self, p, config=None: _recurrent(rec_refs)}
+    )()
     svc.model = type("M", (), {"invoke": lambda self, p, config=None: type("X", (), {"content": "summary"})()})()
 
 
 def test_review_produces_structure(monkeypatch):
     svc = CommentReviewService.__new__(CommentReviewService)
-    svc.cfg = _cfg()
+    svc.config = _cfg()
     svc.status_callback = None
     _patch(svc)
 
@@ -89,7 +93,7 @@ def test_merge_usage_sums_and_tracks_cache():
 
 def test_markdown_uses_passed_summary_without_extra_llm_call():
     svc = CommentReviewService.__new__(CommentReviewService)
-    svc.cfg = _cfg()
+    svc.config = _cfg()
     svc.status_callback = None
 
     calls = {"n": 0}
@@ -109,7 +113,7 @@ def test_markdown_uses_passed_summary_without_extra_llm_call():
 def test_review_grounds_and_drops_invented_refs():
     logs = []
     svc = CommentReviewService.__new__(CommentReviewService)
-    svc.cfg = _cfg()
+    svc.config = _cfg()
     svc.status_callback = logs.append
     # one topic cites a valid ID, one cites an invented one
     _patch(svc, key_refs=(["[C1]"], ["[C99]"]), rec_refs=(["[C1]"],))

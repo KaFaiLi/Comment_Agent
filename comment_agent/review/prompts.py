@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 
-recurrentPrompt = ChatPromptTemplate(
+RECURRENT_TOPICS_PROMPT = ChatPromptTemplate(
     [
         (
             "system",
@@ -63,7 +63,7 @@ recurrentPrompt = ChatPromptTemplate(
 )
 
 
-KeyVariationPrompt = ChatPromptTemplate(
+KEY_VARIATION_PROMPT = ChatPromptTemplate(
     [
         (
             "system",
@@ -122,7 +122,7 @@ KeyVariationPrompt = ChatPromptTemplate(
     ]
 )
 
-xxm_prompt = """
+EXECUTIVE_SUMMARY_PROMPT = """
         Act as a market activities auditor to summarize the following reviews, provide a concise and comprehensive executive summary in professional business English. You do not need to provide recommendation.
         You should provide a small summary for each quater, explain the unusual or most important PnL split per risk factor value identified in the review, and to precize all the underlyings and maturities involved. Write and a professional manner and be assertive, prevent using "such as", "for example".
         The reviews may not following with natural year. The reviews may only be half year, you are only require to summary the reviews provided. Follow the response format for your answer. If there is no reviews, just return: no quaterly reviews found.

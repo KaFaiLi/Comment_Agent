@@ -7,7 +7,11 @@ from comment_agent.llm import client
 from comment_agent.llm.structured import invoke_structured
 from comment_agent.llm.concurrency import run_parallel
 from comment_agent.review.schemas import Recurrent, KeyVariation
-from comment_agent.review.prompts import recurrentPrompt, KeyVariationPrompt, xxm_prompt
+from comment_agent.review.prompts import (
+    EXECUTIVE_SUMMARY_PROMPT,
+    KEY_VARIATION_PROMPT,
+    RECURRENT_TOPICS_PROMPT,
+)
 from comment_agent.review.formatters import format_key_metrics, format_recurrent_topics
 from comment_agent.review.citations import build_citation_index, resolve_topic_references
 from comment_agent.processing.columns import REVIEW_TYPES, EVIDENCE_COLUMNS
@@ -16,12 +20,12 @@ logger = get_logger(__name__)
 
 
 class CommentReviewService:
-    def __init__(self, cfg: AppConfig, status_callback=None):
-        self.cfg = cfg
+    def __init__(self, config: AppConfig, status_callback=None):
+        self.config = config
         self.status_callback = status_callback
-        self.model = client.build_chat_model(cfg)
-        self.key_llm = client.structured(self.model, KeyVariation)
-        self.recurrent_llm = client.structured(self.model, Recurrent)
+        self.model = client.build_chat_model(config)
+        self.key_variation_model = client.structured(self.model, KeyVariation)
+        self.recurrent_topics_model = client.structured(self.model, Recurrent)
         # Running token totals across the whole run. `cached` is the Azure
         # server-side prompt-cache portion of `input` (a subset, not additive).
         self.usage = {"input": 0, "cached": 0, "output": 0}
@@ -54,7 +58,7 @@ class CommentReviewService:
 
         results = run_parallel(
             tasks, self._review_one,
-            max_workers=self.cfg.max_workers,
+            max_workers=self.config.max_workers,
             status_callback=self.status_callback,
         )
 
@@ -83,16 +87,16 @@ class CommentReviewService:
         config = {"callbacks": [cb]}
 
         key_result = invoke_structured(
-            self.key_llm, self.model,
-            KeyVariationPrompt.invoke({"query": annotated}), KeyVariation,
-            max_retries=self.cfg.max_retries, delay_seconds=2,
+            self.key_variation_model, self.model,
+            KEY_VARIATION_PROMPT.invoke({"query": annotated}), KeyVariation,
+            max_retries=self.config.max_retries, delay_seconds=2,
             label=f"Key variation {quarter}-{comment_type}",
             status_callback=self.status_callback, config=config,
         )
         recurrent_result = invoke_structured(
-            self.recurrent_llm, self.model,
-            recurrentPrompt.invoke({"query": annotated}), Recurrent,
-            max_retries=self.cfg.max_retries, delay_seconds=2,
+            self.recurrent_topics_model, self.model,
+            RECURRENT_TOPICS_PROMPT.invoke({"query": annotated}), Recurrent,
+            max_retries=self.config.max_retries, delay_seconds=2,
             label=f"Recurrent {quarter}-{comment_type}",
             status_callback=self.status_callback, config=config,
         )
@@ -134,7 +138,9 @@ class CommentReviewService:
         try:
             logger.debug("Generating executive summary over %d quarter(s)", len(reviews))
             cb = UsageMetadataCallbackHandler()
-            result = self.model.invoke(f"{xxm_prompt} {complete}", config={"callbacks": [cb]})
+            result = self.model.invoke(
+                f"{EXECUTIVE_SUMMARY_PROMPT} {complete}", config={"callbacks": [cb]}
+            )
             self._merge_usage(cb.usage_metadata)
             return getattr(result, "content", str(result))
         except Exception as exc:

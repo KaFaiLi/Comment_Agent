@@ -20,6 +20,16 @@ Both reports use Georgia throughout and have a page-number-only footer.
 
     uv run streamlit run frontend/app.py
 
+## Project structure
+
+- `frontend/app.py` is the thin Streamlit entry point.
+- `frontend/components/` contains reusable presentation components.
+- `frontend/workflows/` orchestrates use cases without mutating UI state.
+- `frontend/session.py` owns the session-state contract.
+- `comment_agent/` contains framework-independent processing, review, export,
+  configuration, and persistence code.
+- `tests/` mirrors backend modules and protects the processing and review contracts.
+
 ## Sample data
 
     uv run python -m scripts.generate_sample_data --out sample_data

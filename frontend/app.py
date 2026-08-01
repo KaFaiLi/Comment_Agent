@@ -1,250 +1,56 @@
+"""Streamlit entry point for the Comment Review Tool.
+
+Keep this module deliberately small: widgets live in ``frontend.components``
+and the application workflow lives in ``frontend.workflows``.
+"""
+
 import os
-import threading
-from datetime import datetime, timezone
 
 import streamlit as st
-from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from comment_agent.config import AppConfig
 from comment_agent.logging_config import configure_logging, get_logger
-from comment_agent.processing.alerts import AlertProcessor
-from comment_agent.processing.columns import COMMENT_TYPE_OPTIONS
-from comment_agent.review.service import CommentReviewService
-from comment_agent.export.documents import DocumentExporter
-from comment_agent import persistence
+from frontend.components.intro import render_intro
+from frontend.components.results import render_results
+from frontend.components.sidebar import render_sidebar
+from frontend.components.token_usage import render_token_usage
+from frontend.session import apply_generation_result, initialize_session_state
+from frontend.status import make_status_callback
+from frontend.workflows.review_generation import generate_review
 
-# Configure backend logging once, at import, before any AppConfig is built.
-# from_env() (built later) is validated and may raise; logging must already be
-# live so that failure is captured. Uses env defaults; refreshed per-run below.
 configure_logging()
 logger = get_logger(__name__)
 
 
-def _make_status(placeholder):
-    # Status callbacks fire from ThreadPoolExecutor worker threads, which lack
-    # the Streamlit ScriptRunContext ("missing ScriptRunContext" warning).
-    # Attach the main script's ctx to each worker before touching a widget.
-    # ponytail: single shared placeholder, last-writer-wins — fine for a
-    # progress line; use a queue if per-task progress bars are ever needed.
-    ctx = get_script_run_ctx()
-
-    def status(msg):
-        add_script_run_ctx(threading.current_thread(), ctx)
-        placeholder.info(msg)
-
-    return status
-
-
-def init_session_state():
-    defaults = {
-        "quarterly_reviews": {},
-        "markdown_contents": {},
-        "executive_summaries": {},
-        "selected_types": COMMENT_TYPE_OPTIONS,
-        "token_usage": None,
-        "run_manifest_path": None,
-        "report_context": None,
-    }
-    for key, value in defaults.items():
-        st.session_state.setdefault(key, value)
-
-
-def render_sidebar():
-    with st.sidebar:
-        st.markdown("Upload the certification, income-attribution and PnL CSV files.")
-        cert = st.file_uploader("Certification Alert CSV", type="csv", key="cert_file")
-        ia = st.file_uploader("Income Attribution Alert CSV", type="csv", key="ia_file")
-        pnl = st.file_uploader("PnL Comment CSV", type="csv", key="pnl_file")
-        raw = st.text_input("Desks (comma-separated)", placeholder="EQD, FIC")
-        desks = [d.strip() for d in raw.split(",") if d.strip()]
-        if desks:
-            st.caption("Desks to search: " + ", ".join(desks))
-        selected = st.multiselect("Comment types", COMMENT_TYPE_OPTIONS,
-                                  default=COMMENT_TYPE_OPTIONS)
-        generate = st.button("Generate Review")
-    return cert, ia, pnl, desks, selected, generate
-
-
-def run_generation(cfg, cert, ia, pnl, desks, selected, status):
-    logger.info("Starting review generation | desks=%s | types=%s", desks, selected)
-    proc = AlertProcessor(cert, ia, pnl, output_dir=cfg.output_dir)
-    evidence = proc.build_evidence(desks)
-    intermediate_path = persistence.save_intermediates(evidence, cfg.output_dir)
-
-    service = CommentReviewService(cfg, status_callback=status)
-    reviews = service.review(evidence, selected)
-
-    markdown_by_type, summary_by_type = {}, {}
-    for comment_type, qreviews in reviews.items():
-        summary = service.generate_executive_summary(qreviews)
-        summary_by_type[comment_type] = summary
-        markdown_by_type[comment_type] = service.generate_markdown_content(
-            comment_type, qreviews, summary=summary)
-
-    dates = sorted(evidence["as_of_date"].dropna().astype(str).unique()) if not evidence.empty else []
-    report_context = {
-        "report_id": f"CAR-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}",
-        "generated_at": datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
-        "review_status": "AI-generated — auditor validation required",
-        "desks": ", ".join(desks),
-        "date_range": f"{dates[0]} to {dates[-1]}" if dates else "No in-scope evidence",
-        "evidence_rows": len(evidence),
-        "input_files": ", ".join((cert.name, ia.name, pnl.name)),
-    }
-
-    result_paths = persistence.save_results(
-        reviews, markdown_by_type, summary_by_type, cfg.output_dir, DocumentExporter(),
-        report_context=report_context,
-    )
-    manifest_path = persistence.save_run_manifest(
-        output_dir=cfg.output_dir,
-        desks=desks,
-        selected_comment_types=selected,
-        evidence=evidence,
-        quarterly_reviews=reviews,
-        token_usage=service.usage,
-        artifacts=[*proc.source_extract_paths, intermediate_path, *result_paths],
-        input_files={
-            "certification_alerts": cert.name,
-            "income_attribution_alerts": ia.name,
-            "pnl_comments": pnl.name,
-        },
-        deployment=cfg.azure_deployment,
-        api_version=cfg.api_version,
-    )
-    logger.info("Review generation complete | comment types produced=%d",
-                len(markdown_by_type))
-
-    st.session_state.quarterly_reviews = reviews
-    st.session_state.markdown_contents = markdown_by_type
-    st.session_state.executive_summaries = summary_by_type
-    st.session_state.selected_types = selected
-    st.session_state.token_usage = service.usage
-    st.session_state.run_manifest_path = manifest_path
-    st.session_state.report_context = report_context
-
-
-def render_results():
-    reviews = st.session_state.quarterly_reviews
-    if not reviews:
-        return
-    exporter = DocumentExporter()
-    manifest_path = st.session_state.run_manifest_path
-    if manifest_path:
-        st.caption(f"Run manifest saved: {manifest_path}")
-    selected = st.session_state.selected_types
-    report_context = st.session_state.report_context
-    if not selected:
-        return
-    tabs = st.tabs(selected)
-    for i, comment_type in enumerate(selected):
-        with tabs[i]:
-            content = st.session_state.markdown_contents.get(comment_type)
-            summary = st.session_state.executive_summaries.get(comment_type)
-            if not content:
-                st.info(f"No review generated for {comment_type}.")
-                continue
-            st.markdown(content)
-            safe = comment_type.replace(" ", "_").lower()
-            st.download_button(
-                "Download Detailed Full Review",
-                exporter.get_word_doc_buffer_from_markdown(
-                    content, comment_type, reviews=reviews.get(comment_type, {}),
-                    executive_summary=summary, report_context=report_context,
-                ),
-                file_name=f"{safe}_full_review.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-            st.download_button(
-                "Download Executive Review",
-                exporter.get_word_doc_buffer_from_executive_summary(
-                    summary, comment_type, reviews=reviews.get(comment_type, {}),
-                    report_context=report_context,
-                ),
-                file_name=f"{safe}_executive_summary.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-            st.warning("AI-generated; apply professional judgement.", icon="ℹ️")
-
-
-def render_token_counts():
-    # Appends to the bottom of the sidebar. Called at the end of main() so it
-    # lands under the sidebar widgets rendered earlier in the same script run.
-    usage = st.session_state.token_usage
-    if not usage:
-        return
-    with st.sidebar:
-        st.divider()
-        st.caption("Token usage (last run)")
-        total = usage["input"] + usage["output"]
-        c1, c2 = st.columns(2)
-        c1.metric("Input", f"{usage['input']:,}")
-        c2.metric("Output", f"{usage['output']:,}")
-        c3, c4 = st.columns(2)
-        c3.metric("Cached", f"{usage['cached']:,}")
-        c4.metric("Total", f"{total:,}")
-
-
-def render_intro():
-    st.markdown(
-        """
-The **Comment Review Tool** helps market-activities auditors review the risk
-comments produced by the Risk department across trading desks.
-
-Upload the three source exports — **certification alerts**, **income-attribution
-alerts**, and **PnL comments** — then choose the desks and comment types in
-scope. The tool consolidates every comment by quarter and produces, for each
-quarter and comment type:
-
-- a **Key Metrics Variation** review — significant PnL and risk-metric moves,
-  the instruments and maturities involved, and the dates that evidence them;
-- a **Recurrent Topics** review — themes, patterns and technical issues that
-  repeat across the period;
-- a cross-quarter **Executive Summary** for reporting.
-
-Each review is downloadable as a Word document and is auto-saved to the output
-folder. Reviews are AI-generated and must be validated with professional
-auditor judgement before use.
-
-*Get started from the sidebar on the left.*
-"""
-    )
-
-
-def main():
+def main() -> None:
     st.title("Comment Review Tool")
-    init_session_state()
-    cert, ia, pnl, desks, selected, generate = render_sidebar()
+    initialize_session_state()
+    request = render_sidebar()
 
-    if not st.session_state.quarterly_reviews and not generate:
+    if not st.session_state.quarterly_reviews and not request.generate:
         render_intro()
 
-    if generate:
-        if not (cert and ia and pnl):
-            logger.warning("Generation blocked | missing CSV upload(s)")
-            st.error("Upload all three CSV files.")
-        elif not desks:
-            logger.warning("Generation blocked | no desks entered")
-            st.error("Enter at least one desk.")
-        elif not selected:
-            logger.warning("Generation blocked | no comment types selected")
-            st.error("Select at least one comment type.")
+    if request.generate:
+        if error := request.validation_error():
+            logger.warning("Generation blocked | %s", error)
+            st.error(error)
         else:
-            cfg = AppConfig.from_env()
-            cfg.configure_logging(force=True)  # apply config's log settings
-            os.makedirs(cfg.output_dir, exist_ok=True)
+            config = AppConfig.from_env()
+            config.configure_logging(force=True)
+            os.makedirs(config.output_dir, exist_ok=True)
             placeholder = st.empty()
             with st.spinner("Generating review..."):
                 try:
-                    run_generation(cfg, cert, ia, pnl, desks, selected,
-                                   status=_make_status(placeholder))
+                    result = generate_review(
+                        config, request, make_status_callback(placeholder)
+                    )
+                    apply_generation_result(result)
                 except Exception:
                     logger.exception("Review generation failed")
                     st.error("Review generation failed — see logs for details.")
 
-    # Always render from session_state — survives download-triggered reruns.
     render_results()
-    render_token_counts()
+    render_token_usage()
 
 
 if __name__ == "__main__":

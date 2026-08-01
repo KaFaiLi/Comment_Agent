@@ -31,8 +31,10 @@ executive summary, downloadable as Word documents.
 ## Architecture
 
 The flow is a two-stage pipeline: **deterministic data prep** → **LLM review**.
-`frontend/app.py` is the Streamlit UI that wires the two stages together and
-holds all state in `st.session_state`. All backend logic lives in the
+`frontend/app.py` is a thin Streamlit entry point. Reusable widgets live in
+`frontend/components/`, session-state ownership lives in `frontend/session.py`,
+thread-aware UI status handling lives in `frontend/status.py`, and use-case
+orchestration lives in `frontend/workflows/`. All backend logic lives in the
 `comment_agent/` package.
 
 ### Stage 1 — `comment_agent/processing/alerts.py` (`AlertProcessor`)
@@ -68,12 +70,12 @@ Key conventions to preserve:
 Groups the final DataFrame by quarter (`as_of_date.dt.to_period("Q")`) and
 comment type, then for each (quarter, type) pair makes **two** structured LLM
 calls:
-- `key_llm` → `KeyVariation` schema (significant metric variations)
-- `recurrent_llm` → `Recurrent` schema (recurring topics)
+- `key_variation_model` → `KeyVariation` schema (significant metric variations)
+- `recurrent_topics_model` → `Recurrent` schema (recurring topics)
 
 Both bind with `with_structured_output(schema, method="json_schema",
-include_raw=True)` (see `llm/client.py`). A third plain-text call (`xxm_prompt`)
-generates the cross-quarter executive summary. Per-(quarter, type) tasks run
+include_raw=True)` (see `llm/client.py`). A third plain-text call
+(`EXECUTIVE_SUMMARY_PROMPT`) generates the cross-quarter executive summary. Per-(quarter, type) tasks run
 concurrently through `run_parallel`.
 
 - `comment_agent/review/prompts.py` — the `ChatPromptTemplate`s. They cast the
